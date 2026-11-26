@@ -1,0 +1,14 @@
+{
+    "name": "ProjectLegion.MovementBenchmark.EditMode.Tests",
+    "references": [
+        "ProjectLegion.MovementBenchmark",
+        "Unity.Mathematics"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "autoReferenced": false
+}

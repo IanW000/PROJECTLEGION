@@ -1,0 +1,8 @@
+{
+    "name": "ProjectLegion.MovementBenchmark",
+    "references": [
+        "Unity.Mathematics"
+    ],
+    "autoReferenced": false,
+    "noEngineReferences": true
+}
