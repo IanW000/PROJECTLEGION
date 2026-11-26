@@ -70,8 +70,14 @@ namespace ProjectLegion.Gameplay.Tests
                 using var units = manager.CreateEntityQuery(ComponentType.ReadOnly<UnitTag>(), ComponentType.ReadOnly<UnitId>());
                 using var renderable = manager.CreateEntityQuery(ComponentType.ReadOnly<UnitTag>(),
                     ComponentType.ReadOnly<MaterialMeshInfo>());
+                using var selected = manager.CreateEntityQuery(ComponentType.ReadOnly<UnitTag>(),
+                    ComponentType.ReadOnly<UnitSelected>());
+                using var selectable = new EntityQueryBuilder(Allocator.Temp).WithAll<UnitTag, UnitSelected>()
+                    .WithOptions(EntityQueryOptions.IgnoreComponentEnabledState).Build(manager);
                 yield return WaitForCount(units, 1000);
                 Assert.That(renderable.CalculateEntityCount(), Is.EqualTo(1000));
+                Assert.That(selectable.CalculateEntityCount(), Is.EqualTo(1000));
+                Assert.That(selected.CalculateEntityCount(), Is.Zero);
                 Assert.That(Object.FindObjectsByType<UnitAuthoring>(FindObjectsInactive.Include, FindObjectsSortMode.None), Is.Empty);
                 var subScene = GameObject.Find("RTS Units").GetComponent<SubScene>();
                 Camera camera = GameObject.Find("RTS Camera Rig").GetComponentInChildren<Camera>();

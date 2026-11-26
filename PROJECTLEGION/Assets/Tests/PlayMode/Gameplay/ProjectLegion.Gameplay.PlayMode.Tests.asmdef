@@ -1,6 +1,6 @@
 {
     "name": "ProjectLegion.Gameplay.PlayMode.Tests",
-    "references": ["ProjectLegion.Gameplay", "Unity.Collections", "Unity.Entities", "Unity.Entities.Graphics", "Unity.Mathematics", "Unity.Scenes", "Unity.Transforms", "Unity.RenderPipelines.Universal.Runtime"],
+    "references": ["ProjectLegion.Gameplay", "Unity.Collections", "Unity.Entities", "Unity.Entities.Graphics", "Unity.Mathematics", "Unity.Mathematics.Extensions", "Unity.Scenes", "Unity.Transforms", "Unity.RenderPipelines.Universal.Runtime"],
     "optionalUnityReferences": ["TestAssemblies"],
     "autoReferenced": false
 }

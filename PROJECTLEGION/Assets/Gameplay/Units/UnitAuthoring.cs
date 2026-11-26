@@ -14,6 +14,8 @@ namespace ProjectLegion.Gameplay
             {
                 Entity entity = GetEntity(TransformUsageFlags.Dynamic);
                 AddComponent<UnitTag>(entity);
+                AddComponent<UnitSelected>(entity);
+                SetComponentEnabled<UnitSelected>(entity, false);
                 AddComponent(entity, new UnitId());
                 AddComponent(entity, new UnitStats { MovementSpeed = Mathf.Max(0f, authoring._movementSpeed) });
             }

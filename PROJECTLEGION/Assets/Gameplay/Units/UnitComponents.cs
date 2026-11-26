@@ -5,6 +5,8 @@ namespace ProjectLegion.Gameplay
 {
     public struct UnitTag : IComponentData { }
 
+    public struct UnitSelected : IComponentData, IEnableableComponent { }
+
     public struct UnitId : IComponentData
     {
         public ulong Value;
