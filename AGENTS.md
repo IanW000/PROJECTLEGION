@@ -7,7 +7,7 @@ PROJECTLEGION is a high-performance RTS and a learning project for large-scale U
 ## Repository and Technology
 
 - The Git root contains the Unity project in `PROJECTLEGION/`. Treat Unity paths below as relative to that directory.
-- The verified baseline is Unity `6000.0.59f2`, URP `17.0.4`, Input System `1.14.2`, and AI Navigation `2.0.9`. URP has PC and Mobile presets. Active Input Handling is Both. The project-wide action asset is `Assets/InputSystem_Actions.inputactions`. `Assets/Scenes/SampleScene.unity` is the only enabled build scene in this baseline.
+- The verified baseline is Unity `6000.0.66f2`, URP `17.0.4`, Input System `1.14.2`, and AI Navigation `2.0.9`. URP has PC and Mobile presets. Active Input Handling is Both. The project-wide action asset is `Assets/InputSystem_Actions.inputactions`. `Assets/Scenes/SampleScene.unity` is the only enabled build scene in this baseline.
 - Before making technical decisions, verify `ProjectSettings/ProjectVersion.txt`, `Packages/manifest.json`, and `Packages/packages-lock.json`. Check relevant Player, Build, Graphics, and Quality settings when changing input or rendering.
 - The baseline lockfile resolves Burst `1.8.25`, Collections `2.5.1`, and Mathematics `1.3.2` as transitive dependencies. Entities and Entities Graphics are absent from that baseline. Verify availability and compatibility before using any package API. Get explicit approval before installing or upgrading packages.
 - Evaluate DOTS, ECS, the C# Job System, Burst, Unity Mathematics, Native Collections, Entities Graphics, and GPU instancing against the needs of each system.
