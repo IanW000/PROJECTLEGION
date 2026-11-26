@@ -55,4 +55,4 @@ PROJECTLEGION is a high-performance RTS and a learning project for large-scale U
 
 ## Communication and Learning
 
-Assume familiarity with traditional Unity development and explain new DOTS, ECS, Jobs, or Burst concepts when introducing them. Cover how they work, why they fit the task, how they compare with traditional Unity approaches, and the performance and maintenance trade-offs. Keep detailed designs, benchmark procedures, and measurement records in separate documents when warranted.
+Communicate with the developer in Simplified Chinese. Assume familiarity with traditional Unity development and explain new DOTS, ECS, Jobs, or Burst concepts when introducing them. Cover how they work, why they fit the task, how they compare with traditional Unity approaches, and the performance and maintenance trade-offs. Keep detailed designs, benchmark procedures, and measurement records in separate documents when warranted.
