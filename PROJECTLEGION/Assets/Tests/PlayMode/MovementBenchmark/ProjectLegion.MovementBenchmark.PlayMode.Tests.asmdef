@@ -3,7 +3,10 @@
     "references": [
         "ProjectLegion.MovementBenchmark",
         "ProjectLegion.MovementBenchmark.Runtime",
-        "Unity.Mathematics"
+        "Unity.Mathematics",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Entities"
     ],
     "optionalUnityReferences": ["TestAssemblies"],
     "autoReferenced": false

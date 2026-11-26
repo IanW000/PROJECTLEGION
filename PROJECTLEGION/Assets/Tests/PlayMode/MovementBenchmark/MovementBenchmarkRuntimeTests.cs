@@ -1,5 +1,7 @@
 using System.Collections;
 using NUnit.Framework;
+using Unity.Burst;
+using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -8,6 +10,14 @@ namespace ProjectLegion.MovementBenchmark.Tests
 {
     public class MovementBenchmarkRuntimeTests
     {
+        private static readonly BenchmarkMode[] EcsModes =
+        {
+            BenchmarkMode.EcsSequential,
+            BenchmarkMode.EcsSequentialBurst,
+            BenchmarkMode.EcsParallel,
+            BenchmarkMode.EcsParallelBurst
+        };
+
         private const int TestUnitCount = 100;
         private const int SavedVSync = 1;
         private const int SavedTargetFrameRate = 72;
@@ -172,11 +182,10 @@ namespace ProjectLegion.MovementBenchmark.Tests
         }
 
         [Test]
-        public void RejectsUnsupportedModeBeforeChangingSettings()
+        public void RejectsMissingConfigurationBeforeChangingSettings()
         {
             var runner = CreateRunner(out _runnerObject);
-            var config = new BenchmarkConfig(mode: BenchmarkMode.EcsParallelBurst, unitCount: TestUnitCount);
-            Assert.That(runner.TryStart(config), Is.False);
+            Assert.That(runner.TryStart(null), Is.False);
             Assert.That(runner.Lifecycle, Is.EqualTo(BenchmarkLifecycle.Failed));
             Assert.That(runner.transform.childCount, Is.Zero);
             Assert.That(runner.IsRunning, Is.False);
@@ -274,6 +283,150 @@ namespace ProjectLegion.MovementBenchmark.Tests
         {
             runnerObject = new GameObject("Test Benchmark Runner");
             return runnerObject.AddComponent<BenchmarkRunner>();
+        }
+
+        [UnityTest]
+        public IEnumerator AllFiveModesProduceEquivalentFinalStates()
+        {
+            var runner = CreateRunner(out _runnerObject);
+            Assert.That(runner.TryStart(CreateEquivalenceConfig(BenchmarkMode.MonoBehaviour)), Is.True);
+            yield return WaitForState(runner, BenchmarkLifecycle.Completed);
+            UnitState[] baseline = runner.FinalStates.ToArray();
+
+            foreach (BenchmarkMode mode in EcsModes)
+            {
+                var config = CreateEquivalenceConfig(mode);
+                Assert.That(runner.TryStart(config), Is.True);
+                yield return WaitForState(runner, BenchmarkLifecycle.WarmingUp);
+                Assert.That(runner.transform.childCount, Is.Zero);
+                Assert.That(runner.CompletedWarmupSteps, Is.Zero);
+                World benchmarkWorld = FindBenchmarkWorld();
+                Assert.That(benchmarkWorld, Is.Not.Null);
+                Assert.That(benchmarkWorld, Is.Not.SameAs(World.DefaultGameObjectInjectionWorld));
+                for (int step = 1; step <= config.WarmupSteps; step++)
+                {
+                    yield return null;
+                    Assert.That(runner.CompletedWarmupSteps, Is.EqualTo(step));
+                    Assert.That(runner.CompletedSampleSteps, Is.Zero);
+                }
+
+                for (int step = 1; step <= config.SampleSteps; step++)
+                {
+                    yield return null;
+                    Assert.That(runner.CompletedSampleSteps, Is.EqualTo(step));
+                }
+
+                yield return WaitForState(runner, BenchmarkLifecycle.Completed);
+                Assert.That(benchmarkWorld.IsCreated, Is.False);
+                Assert.That(runner.FinalStates.Length, Is.EqualTo(baseline.Length));
+                for (int index = 0; index < baseline.Length; index++)
+                {
+                    UnitState actual = runner.FinalStates[index];
+                    // In this arena one float ULP is <= 6e-8. Allow several ULPs
+                    // per step for integration and reflection over eight steps.
+                    Assert.That(math.cmax(math.abs(actual.PositionXZ - baseline[index].PositionXZ)),
+                        Is.LessThan(0.000002f), $"Mode {mode}, unit {index}");
+                    Assert.That(actual.VelocityXZ, Is.EqualTo(baseline[index].VelocityXZ));
+                }
+                AssertSettingsRestored();
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator CancelDuringParallelStepCompletesWorkAndReleasesOwnership()
+        {
+            var runner = CreateRunner(out _runnerObject);
+            var other = CreateRunner(out _otherRunnerObject);
+            var callback = _runnerObject.AddComponent<BeforeBenchmarkFrameEnd>();
+            var config = new BenchmarkConfig(BenchmarkMode.EcsParallelBurst, unitCount: 10000,
+                warmupSteps: 0, sampleSteps: 4);
+            Assert.That(runner.TryStart(config), Is.True);
+            yield return WaitForState(runner, BenchmarkLifecycle.Sampling);
+            World benchmarkWorld = FindBenchmarkWorld();
+            Assert.That(benchmarkWorld, Is.Not.Null);
+            bool requestedDuringStep = false;
+            bool deferred = false;
+            bool rejectedOverlap = false;
+            callback.Callback = () =>
+            {
+                callback.Callback = null;
+                requestedDuringStep = runner.IsStepOpen;
+                rejectedOverlap = !other.TryStart(config);
+                runner.Cancel();
+                deferred = runner.IsRunning && benchmarkWorld.IsCreated;
+            };
+
+            yield return WaitForState(runner, BenchmarkLifecycle.Cancelled);
+            Assert.That(requestedDuringStep && deferred && rejectedOverlap, Is.True);
+            Assert.That(runner.CompletedSampleSteps, Is.EqualTo(1));
+            Assert.That(runner.FinalStates.IsEmpty, Is.True);
+            Assert.That(benchmarkWorld.IsCreated, Is.False);
+            AssertSettingsRestored();
+
+            Assert.That(other.TryStart(config), Is.True);
+            yield return WaitForState(other, BenchmarkLifecycle.Completed);
+            Assert.That(other.FinalStates.Length, Is.EqualTo(config.UnitCount));
+            Assert.That(FindBenchmarkWorld(), Is.Null);
+            AssertSettingsRestored();
+        }
+
+        [Test]
+        public void ExecutionProbeDistinguishesBurstInEditorAndTestPlayer()
+        {
+            Assert.That(BurstCompiler.IsEnabled, Is.True, "This verification requires Burst compilation.");
+            foreach (BenchmarkMode mode in EcsModes)
+            {
+                using var world = new EcsMovementWorld(new BenchmarkConfig(mode), new UnitState[1],
+                    recordExecution: true);
+                world.StartStep();
+                bool burst = mode == BenchmarkMode.EcsSequentialBurst || mode == BenchmarkMode.EcsParallelBurst;
+                world.VerifyExecution(burst ? MovementChunkData.BurstExecution : MovementChunkData.ManagedExecution);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator LossOfFrameEndWithParallelWorkDisposesWorldWithoutCountingTheStep()
+        {
+            var runner = CreateRunner(out _runnerObject);
+            var callback = _runnerObject.AddComponent<BeforeBenchmarkFrameEnd>();
+            var config = new BenchmarkConfig(BenchmarkMode.EcsParallel, unitCount: 10000,
+                warmupSteps: 0, sampleSteps: 4);
+            Assert.That(runner.TryStart(config), Is.True);
+            yield return WaitForState(runner, BenchmarkLifecycle.Sampling);
+            World benchmarkWorld = FindBenchmarkWorld();
+            Assert.That(benchmarkWorld, Is.Not.Null);
+            var frameEnd = runner.GetComponent<BenchmarkFrameEnd>();
+            bool lostDuringStep = false;
+            callback.Callback = () =>
+            {
+                callback.Callback = null;
+                lostDuringStep = runner.IsStepOpen;
+                frameEnd.enabled = false;
+            };
+
+            yield return WaitForState(runner, BenchmarkLifecycle.Failed);
+            Assert.That(lostDuringStep, Is.True);
+            Assert.That(runner.Status, Does.Contain("frame-end"));
+            Assert.That(benchmarkWorld.IsCreated, Is.False);
+            Assert.That(runner.CompletedSampleSteps, Is.Zero);
+            Assert.That(runner.FinalStates.IsEmpty, Is.True);
+            AssertSettingsRestored();
+        }
+
+        private static BenchmarkConfig CreateEquivalenceConfig(BenchmarkMode mode)
+        {
+            return new BenchmarkConfig(mode, TestUnitCount, new float2(-0.75f), new float2(0.75f),
+                warmupSteps: 2, sampleSteps: 6);
+        }
+
+        private static World FindBenchmarkWorld()
+        {
+            foreach (World world in World.All)
+            {
+                if (world.Name == EcsMovementWorld.WorldName)
+                    return world;
+            }
+            return null;
         }
 
         private static IEnumerator WaitForState(BenchmarkRunner runner, BenchmarkLifecycle target)

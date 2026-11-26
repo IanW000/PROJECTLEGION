@@ -31,6 +31,7 @@ namespace ProjectLegion.MovementBenchmark
         private BenchmarkFrameEnd _frameEnd;
         private GameObject _unitRoot;
         private MonoMovementUnit[] _units;
+        private EcsMovementWorld _ecsWorld;
         private UnitState[] _states;
         private bool _cancelRequested;
         private bool _unitWasDisabled;
@@ -88,9 +89,9 @@ namespace ProjectLegion.MovementBenchmark
         private bool BeginRun(BenchmarkConfig config)
         {
             _config = config;
-            if (config == null || config.Mode != BenchmarkMode.MonoBehaviour)
+            if (config == null)
             {
-                Finish(BenchmarkLifecycle.Failed, "This runtime supports only Mode A (MonoBehaviour).");
+                Finish(BenchmarkLifecycle.Failed, "A benchmark configuration is required.");
                 return false;
             }
 
@@ -147,6 +148,7 @@ namespace ProjectLegion.MovementBenchmark
                         if (IsStepOpen || _frameEnd == null || !_frameEnd.isActiveAndEnabled)
                             throw new InvalidOperationException("The benchmark frame-end callback is unavailable.");
                         IsStepOpen = true;
+                        _ecsWorld?.StartStep();
                         break;
                     case BenchmarkLifecycle.Validating:
                         ValidateResults();
@@ -175,6 +177,18 @@ namespace ProjectLegion.MovementBenchmark
 
             _states = new UnitState[_config.UnitCount];
             UnitInitialization.Fill(_config, _states);
+            if (_config.Mode == BenchmarkMode.MonoBehaviour)
+                InitializeMonoUnits();
+            else
+                _ecsWorld = new EcsMovementWorld(_config, _states);
+
+            Lifecycle = _config.WarmupSteps > 0 ? BenchmarkLifecycle.WarmingUp : BenchmarkLifecycle.Sampling;
+            Status = _config.WarmupSteps > 0 ? "Warming up." : "Sampling steps.";
+            // No step is opened here, even if Unity dispatches Update to newly enabled units this frame.
+        }
+
+        private void InitializeMonoUnits()
+        {
             _units = new MonoMovementUnit[_config.UnitCount];
             _unitRoot = new GameObject("Benchmark Units");
             _unitRoot.SetActive(false);
@@ -190,9 +204,6 @@ namespace ProjectLegion.MovementBenchmark
             }
 
             _unitRoot.SetActive(true);
-            Lifecycle = _config.WarmupSteps > 0 ? BenchmarkLifecycle.WarmingUp : BenchmarkLifecycle.Sampling;
-            Status = _config.WarmupSteps > 0 ? "Warming up." : "Sampling steps.";
-            // No step is opened here, even if Unity dispatches Update to newly enabled units this frame.
         }
 
         internal void CloseStep()
@@ -201,6 +212,16 @@ namespace ProjectLegion.MovementBenchmark
                 return;
 
             IsStepOpen = false;
+            try
+            {
+                _ecsWorld?.CompleteStep();
+            }
+            catch (Exception exception)
+            {
+                Finish(BenchmarkLifecycle.Failed, exception.Message);
+                return;
+            }
+
             if (FailIfUnitWasDisabled())
                 return;
 
@@ -248,21 +269,24 @@ namespace ProjectLegion.MovementBenchmark
             if (CompletedWarmupSteps != _config.WarmupSteps || CompletedSampleSteps != _config.SampleSteps)
                 throw new InvalidOperationException("Unexpected simulation step count.");
 
-            for (int i = 0; i < _units.Length; i++)
+            _ecsWorld?.CopyStates(_states);
+            for (int i = 0; i < _states.Length; i++)
             {
-                var unit = _units[i];
-                if (unit == null || !unit.isActiveAndEnabled)
-                    throw new InvalidOperationException("A benchmark unit was removed or disabled.");
+                if (_units != null)
+                {
+                    var unit = _units[i];
+                    if (unit == null || !unit.isActiveAndEnabled)
+                        throw new InvalidOperationException("A benchmark unit was removed or disabled.");
 
-                UnitState state = unit.State;
+                    _states[i] = unit.State;
+                }
+
+                UnitState state = _states[i];
                 if (!math.all(math.isfinite(state.PositionXZ)) || !math.all(math.isfinite(state.VelocityXZ)) ||
                     !math.all(state.PositionXZ >= _config.MinXZ & state.PositionXZ <= _config.MaxXZ))
                 {
                     throw new InvalidOperationException("A benchmark unit has invalid simulation state.");
                 }
-
-                // Reuse the initialization buffer for the final snapshot, in stable unit order.
-                _states[i] = state;
             }
         }
 
@@ -272,6 +296,20 @@ namespace ProjectLegion.MovementBenchmark
             IsStepOpen = false;
             _cancelRequested = false;
             _unitWasDisabled = false;
+
+            try
+            {
+                _ecsWorld?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                terminalState = BenchmarkLifecycle.Failed;
+                status = $"{status} ECS cleanup failed: {exception.Message}";
+            }
+            finally
+            {
+                _ecsWorld = null;
+            }
 
             if (_unitRoot != null)
             {

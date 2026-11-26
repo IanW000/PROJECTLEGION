@@ -2,7 +2,10 @@
     "name": "ProjectLegion.MovementBenchmark.Runtime",
     "references": [
         "ProjectLegion.MovementBenchmark",
-        "Unity.Mathematics"
+        "Unity.Mathematics",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Entities"
     ],
     "autoReferenced": false
 }

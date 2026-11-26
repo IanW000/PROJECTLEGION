@@ -2,7 +2,11 @@
     "name": "ProjectLegion.MovementBenchmark.EditMode.Tests",
     "references": [
         "ProjectLegion.MovementBenchmark",
-        "Unity.Mathematics"
+        "Unity.Mathematics",
+        "ProjectLegion.MovementBenchmark.Runtime",
+        "Unity.Burst",
+        "Unity.Collections",
+        "Unity.Entities"
     ],
     "includePlatforms": [
         "Editor"
