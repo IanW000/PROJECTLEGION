@@ -1,0 +1,6 @@
+{
+    "name": "ProjectLegion.Gameplay.PlayMode.Tests",
+    "references": ["ProjectLegion.Gameplay"],
+    "optionalUnityReferences": ["TestAssemblies"],
+    "autoReferenced": false
+}
