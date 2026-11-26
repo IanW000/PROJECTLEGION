@@ -7,6 +7,11 @@ namespace ProjectLegion.Gameplay
 
     public struct UnitSelected : IComponentData, IEnableableComponent { }
 
+    public struct UnitMoveTarget : IComponentData, IEnableableComponent
+    {
+        public float2 DestinationXZ;
+    }
+
     public struct UnitId : IComponentData
     {
         public ulong Value;
