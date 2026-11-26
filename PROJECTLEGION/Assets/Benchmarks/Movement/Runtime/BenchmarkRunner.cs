@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using Unity.Mathematics;
 using UnityEngine;
 
@@ -38,10 +39,14 @@ namespace ProjectLegion.MovementBenchmark
         private bool _ownsRuntimeSettings;
         private int _originalVSyncCount;
         private int _originalTargetFrameRate;
+        private BenchmarkMeasurements _measurement;
+        private bool _baseline;
+        private bool _measuringStep;
+        private double _dispatchMs;
 
         public BenchmarkLifecycle Lifecycle { get; private set; }
         public BenchmarkMode Mode => _config?.Mode ?? (_settings != null ? _settings.Mode : BenchmarkMode.MonoBehaviour);
-        public int UnitCount => _config?.UnitCount ?? (_settings != null ? _settings.UnitCount : 0);
+        public int UnitCount => _baseline ? 0 : _config?.UnitCount ?? (_settings != null ? _settings.UnitCount : 0);
         public int CompletedWarmupSteps { get; private set; }
         public int CompletedSampleSteps { get; private set; }
         public string Status { get; private set; } = "Idle.";
@@ -78,9 +83,25 @@ namespace ProjectLegion.MovementBenchmark
             return BeginRun(config);
         }
 
+        internal bool TryStartMeasured(BenchmarkWorkload workload, bool smoke, BenchmarkMeasurements measurement)
+        {
+            if (!CanStart())
+                return false;
+
+            BenchmarkConfig config = workload.Config(smoke);
+            if (measurement.Samples.Length != config.SampleSteps)
+                throw new ArgumentException("Measurement capacity must match the sample count.", nameof(measurement));
+
+            ResetRunProgress();
+            _measurement = measurement;
+            _baseline = workload.IsBaseline;
+            return BeginRun(config);
+        }
+
         private void ResetRunProgress()
         {
             _config = null;
+            _baseline = false;
             _states = null;
             CompletedWarmupSteps = 0;
             CompletedSampleSteps = 0;
@@ -138,6 +159,8 @@ namespace ProjectLegion.MovementBenchmark
 
             try
             {
+                long frameStart = _measurement == null ? 0 : Stopwatch.GetTimestamp();
+                _measurement?.ObserveFrame(Time.frameCount, frameStart);
                 switch (Lifecycle)
                 {
                     case BenchmarkLifecycle.Initializing:
@@ -148,10 +171,30 @@ namespace ProjectLegion.MovementBenchmark
                         if (IsStepOpen || _frameEnd == null || !_frameEnd.isActiveAndEnabled)
                             throw new InvalidOperationException("The benchmark frame-end callback is unavailable.");
                         IsStepOpen = true;
+                        _measuringStep = _measurement != null && Lifecycle == BenchmarkLifecycle.Sampling;
+                        if (_measuringStep)
+                        {
+                            long opening = Stopwatch.GetTimestamp();
+                            _measurement.Open(Time.frameCount, frameStart, opening);
+                            if (_ecsWorld != null)
+                            {
+                                long dispatch = Stopwatch.GetTimestamp();
+                                _ecsWorld.StartStep();
+                                _dispatchMs = BenchmarkMeasurements.Milliseconds(Stopwatch.GetTimestamp() - dispatch);
+                            }
+                            break;
+                        }
                         _ecsWorld?.StartStep();
                         break;
                     case BenchmarkLifecycle.Validating:
                         ValidateResults();
+                        if (_measurement != null)
+                        {
+                            if (_measurement.Count != _config.SampleSteps)
+                                throw new InvalidOperationException("Unexpected measurement sample count.");
+                            if (!_baseline)
+                                BenchmarkWorkload.Validate(_config, _states);
+                        }
                         Finish(BenchmarkLifecycle.Completed, "Completed.");
                         break;
                 }
@@ -175,13 +218,15 @@ namespace ProjectLegion.MovementBenchmark
             QualitySettings.vSyncCount = 0;
             Application.targetFrameRate = -1;
 
-            _states = new UnitState[_config.UnitCount];
-            UnitInitialization.Fill(_config, _states);
+            _states = new UnitState[UnitCount];
+            if (!_baseline)
+                UnitInitialization.Fill(_config, _states);
             if (_config.Mode == BenchmarkMode.MonoBehaviour)
                 InitializeMonoUnits();
             else
                 _ecsWorld = new EcsMovementWorld(_config, _states);
 
+            _measurement?.StartCounters(_config.WarmupSteps);
             Lifecycle = _config.WarmupSteps > 0 ? BenchmarkLifecycle.WarmingUp : BenchmarkLifecycle.Sampling;
             Status = _config.WarmupSteps > 0 ? "Warming up." : "Sampling steps.";
             // No step is opened here, even if Unity dispatches Update to newly enabled units this frame.
@@ -189,7 +234,9 @@ namespace ProjectLegion.MovementBenchmark
 
         private void InitializeMonoUnits()
         {
-            _units = new MonoMovementUnit[_config.UnitCount];
+            _units = new MonoMovementUnit[_states.Length];
+            if (_units.Length == 0)
+                return;
             _unitRoot = new GameObject("Benchmark Units");
             _unitRoot.SetActive(false);
             _unitRoot.transform.SetParent(transform, false);
@@ -212,6 +259,7 @@ namespace ProjectLegion.MovementBenchmark
                 return;
 
             IsStepOpen = false;
+            long completeStart = _measuringStep && _ecsWorld != null ? Stopwatch.GetTimestamp() : 0;
             try
             {
                 _ecsWorld?.CompleteStep();
@@ -222,8 +270,15 @@ namespace ProjectLegion.MovementBenchmark
                 return;
             }
 
+            long end = _measuringStep ? Stopwatch.GetTimestamp() : 0;
             if (FailIfUnitWasDisabled())
                 return;
+
+            if (_measuringStep)
+            {
+                _measurement.Close(end, _dispatchMs, BenchmarkMeasurements.Milliseconds(end - completeStart), Mode);
+                _measuringStep = false;
+            }
 
             if (Lifecycle == BenchmarkLifecycle.WarmingUp)
             {
@@ -296,6 +351,7 @@ namespace ProjectLegion.MovementBenchmark
             IsStepOpen = false;
             _cancelRequested = false;
             _unitWasDisabled = false;
+            _measuringStep = false;
 
             try
             {
@@ -309,6 +365,8 @@ namespace ProjectLegion.MovementBenchmark
             finally
             {
                 _ecsWorld = null;
+                _measurement?.Dispose();
+                _measurement = null;
             }
 
             if (_unitRoot != null)

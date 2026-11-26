@@ -419,6 +419,80 @@ namespace ProjectLegion.MovementBenchmark.Tests
                 warmupSteps: 2, sampleSteps: 6);
         }
 
+        [UnityTest]
+        public IEnumerator FormalWorkloadAgreesAcrossAllFiveModes()
+        {
+            var runner = CreateRunner(out _runnerObject);
+            UnitState[] baseline = null;
+            for (int modeIndex = 0; modeIndex <= (int)BenchmarkMode.EcsParallelBurst; modeIndex++)
+            {
+                var mode = (BenchmarkMode)modeIndex;
+                var workload = new BenchmarkWorkload(mode, TestUnitCount, 1);
+                using var data = new BenchmarkMeasurements(BenchmarkWorkload.Samples);
+                Assert.That(runner.TryStartMeasured(workload, false, data), Is.True);
+                for (int frame = 0; runner.IsRunning && frame < 1350; frame++)
+                    yield return null;
+                Assert.That(runner.Lifecycle, Is.EqualTo(BenchmarkLifecycle.Completed), $"{mode}: {runner.Status}");
+                Assert.That(runner.CompletedWarmupSteps, Is.EqualTo(300));
+                Assert.That(runner.CompletedSampleSteps, Is.EqualTo(1000));
+                Assert.That(data.Count, Is.EqualTo(1000));
+                for (int index = 0; index < data.Count; index++)
+                {
+                    Assert.That(data.Samples[index].FrameMs, Is.GreaterThan(0));
+                    if (index > 0)
+                        Assert.That(data.Samples[index].Frame, Is.EqualTo(data.Samples[index - 1].Frame + 1));
+                }
+
+                if (baseline == null)
+                    baseline = runner.FinalStates.ToArray();
+                else
+                    for (int index = 0; index < baseline.Length; index++)
+                    {
+                        UnitState actual = runner.FinalStates[index];
+                        Assert.That(math.cmax(math.abs(actual.PositionXZ - baseline[index].PositionXZ)),
+                            Is.LessThanOrEqualTo(BenchmarkWorkload.PositionTolerance), $"{mode}, unit {index}");
+                        Assert.That(actual.VelocityXZ, Is.EqualTo(baseline[index].VelocityXZ));
+                    }
+                AssertSettingsRestored();
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator MeasuredFailureAndCancellationCanRestartWithEmptyBaselines()
+        {
+            var runner = CreateRunner(out _runnerObject);
+            var workload = new BenchmarkWorkload(BenchmarkMode.EcsParallelBurst, 0, 0);
+            using var failure = new BenchmarkMeasurements(6);
+            var frameEnd = runner.GetComponent<BenchmarkFrameEnd>();
+            frameEnd.enabled = false;
+            Assert.That(runner.TryStartMeasured(workload, true, failure), Is.True);
+            yield return WaitForState(runner, BenchmarkLifecycle.Failed);
+            Assert.That(failure.Count, Is.Zero);
+            AssertSettingsRestored();
+
+            frameEnd.enabled = true;
+            using var cancellation = new BenchmarkMeasurements(6);
+            Assert.That(runner.TryStartMeasured(workload, true, cancellation), Is.True);
+            yield return WaitForState(runner, BenchmarkLifecycle.WarmingUp);
+            runner.Cancel();
+            Assert.That(runner.Lifecycle, Is.EqualTo(BenchmarkLifecycle.Cancelled));
+            Assert.That(FindBenchmarkWorld(), Is.Null);
+            Assert.That(cancellation.Count, Is.Zero);
+            AssertSettingsRestored();
+
+            foreach (BenchmarkMode mode in new[] { BenchmarkMode.MonoBehaviour, BenchmarkMode.EcsParallelBurst })
+            {
+                using var data = new BenchmarkMeasurements(6);
+                Assert.That(runner.TryStartMeasured(new BenchmarkWorkload(mode, 0, 0), true, data), Is.True);
+                yield return WaitForState(runner, BenchmarkLifecycle.Completed);
+                Assert.That(data.Count, Is.EqualTo(6));
+                Assert.That(runner.FinalStates.IsEmpty, Is.True);
+                Assert.That(runner.transform.childCount, Is.Zero);
+                Assert.That(FindBenchmarkWorld(), Is.Null);
+                AssertSettingsRestored();
+            }
+        }
+
         private static World FindBenchmarkWorld()
         {
             foreach (World world in World.All)
