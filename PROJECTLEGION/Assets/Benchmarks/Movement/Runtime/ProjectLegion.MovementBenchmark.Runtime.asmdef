@@ -1,0 +1,8 @@
+{
+    "name": "ProjectLegion.MovementBenchmark.Runtime",
+    "references": [
+        "ProjectLegion.MovementBenchmark",
+        "Unity.Mathematics"
+    ],
+    "autoReferenced": false
+}

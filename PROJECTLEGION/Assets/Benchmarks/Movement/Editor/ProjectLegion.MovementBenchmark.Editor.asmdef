@@ -1,0 +1,9 @@
+{
+    "name": "ProjectLegion.MovementBenchmark.Editor",
+    "references": [
+        "ProjectLegion.MovementBenchmark",
+        "ProjectLegion.MovementBenchmark.Runtime"
+    ],
+    "includePlatforms": ["Editor"],
+    "autoReferenced": false
+}

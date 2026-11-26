@@ -1,0 +1,10 @@
+{
+    "name": "ProjectLegion.MovementBenchmark.PlayMode.Tests",
+    "references": [
+        "ProjectLegion.MovementBenchmark",
+        "ProjectLegion.MovementBenchmark.Runtime",
+        "Unity.Mathematics"
+    ],
+    "optionalUnityReferences": ["TestAssemblies"],
+    "autoReferenced": false
+}
