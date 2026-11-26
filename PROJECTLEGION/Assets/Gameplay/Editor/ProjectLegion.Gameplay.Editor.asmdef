@@ -1,0 +1,13 @@
+{
+    "name": "ProjectLegion.Gameplay.Editor",
+    "references": [
+        "Unity.Collections",
+        "Unity.Entities",
+        "Unity.Entities.Graphics",
+        "Unity.Mathematics",
+        "Unity.Mathematics.Extensions",
+        "Unity.Transforms"
+    ],
+    "includePlatforms": ["Editor"],
+    "autoReferenced": false
+}
