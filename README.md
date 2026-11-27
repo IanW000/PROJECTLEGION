@@ -1,44 +1,198 @@
 # PROJECTLEGION
 
-## Windows x64 移动基准
+### Large-Scale RTS Simulation | Performance Engineering | AI Agentic Development
 
-使用 Unity 6000.0.66f2 和项目锁定的包版本。在 **File → Build Profiles** 选择 Windows x64 作为活动平台，然后用 **Tools → Project Legion → Build Windows Benchmark Player** 生成 `LegionBenchmark.exe`。菜单显式构建 `MovementBenchmark.unity` 和 Development Player，保留项目的启用场景列表。所有模式使用同一份 Player、质量配置和启动参数。命令行构建可在隔离项目副本上使用 `-batchmode -quit -buildTarget Win64 -executeMethod ProjectLegion.MovementBenchmark.BenchmarkWindowsBuild.BuildFromCommandLine -legion-build-path <exe路径>`。
+## Overview
 
-从仓库根目录运行。以下 PowerShell 示例将输出写到独立目录，并捕获 Player 退出码。
+PROJECTLEGION is an experimental real-time strategy (RTS) project focused on large-scale gameplay simulation, high-performance software architecture, and AI-assisted software engineering.
 
-```powershell
-$exe = 'C:\Bench\LegionBenchmark.exe'
-$gitCommit = (git rev-parse HEAD).Trim()
-$results = 'C:\Bench\Results'
-New-Item -ItemType Directory -Path $results -Force | Out-Null
-$playerArgs = @(
-    '-batchmode', '-nographics',
-    '-legion-benchmark', 'single', '-legion-mode', 'E', '-legion-units', '1000',
-    '-legion-output', ('"' + $results + '"'),
-    '-legion-git', $gitCommit,
-    '-logFile', ('"' + (Join-Path $results 'player.log') + '"')
-)
-$player = Start-Process -FilePath $exe -ArgumentList $playerArgs -PassThru -Wait
-$player.ExitCode
-```
+As a game developer with a strong interest in performance optimization, I started this project to explore advanced technologies, algorithms, and development methodologies beyond my previous professional experience.
 
-将 `single` 后的模式和单位数选项替换为 `suite -legion-repetitions 3 -legion-order-seed 71237` 即可启动全套测量。A 为 MonoBehaviour，B/C 为同步 ECS，D/E 为并行 ECS，C/E 使用 Burst。单位数支持 100、500、1,000、2,500、5,000、10,000。全套默认先执行各模式的独立零单位基线，再执行三轮。每轮以固定种子打乱 30 个组合，共 90 个非零测量运行。单次命令默认执行一组零单位基线和一次指定组合。Git SHA 可省略，带本地改动的构建应另记差异。
+Rather than focusing primarily on visual fidelity or commercial game production, PROJECTLEGION prioritizes scalability, computational efficiency, software architecture, and technical experimentation.
 
-正式运行固定步长为 1/60 秒，每帧一步，300 步预热后记录 1,000 步。冒烟可在 `single` 追加 `-legion-smoke`，改用 2 步预热和 6 步采样，导出明确标记为冒烟。Player 只在两次运行之间写 CSV 和报告进度。日志输出本次运行目录。要取消，在该目录新建空文件 `cancel.request`，Player 会在收到系统文件通知后安全结束当前运行，并保留已完成的结果。文件通知异步送达，极短的运行可能先结束。退出码 0 表示完成，1 表示失败，2 表示取消。
+This project is both a personal learning journey and a practical exploration of modern game development technologies.
 
-### CSV 与计时口径
+## Project Vision
 
-| 文件 | 内容 |
+The primary goal of PROJECTLEGION is to develop a scalable RTS prototype capable of simultaneously selecting and commanding **10,000+ individual units** in real time.
+
+The project aims to explore:
+
+- Large-scale unit movement and combat simulation.
+- Efficient pathfinding and navigation algorithms.
+- Dynamic formation generation and slot assignment.
+- Scalable collision avoidance and crowd simulation.
+- Multithreaded gameplay systems.
+- Data-oriented software architecture.
+- CPU and GPU performance optimization.
+- Memory-efficient data structures and algorithms.
+- AI agent integration into professional software development workflows.
+
+The long-term objective is to continuously push the performance limits of Unity while maintaining a modular, maintainable, and extensible codebase.
+
+## Technology Stack
+
+| Technology | Purpose |
 |---|---|
-| `frames.csv` | 每个已验证运行的逐帧样本，包含运行序号、模式、单位数、重复序号、基线标记及步号 |
-| `summary.csv` | 每次运行、每项指标的有效样本数、最小值、最大值、均值、中位数、总体标准差、P95、P99 和适用的吞吐量 |
-| `runs.csv` | 尝试过的运行状态、样本数和详情。读取正式样本时按此表筛选 `Completed` |
-| `environment.csv` | Unity、平台、构建、脚本后端、Burst 探针、硬件、worker 数、计时器和工作负载配置 |
+| Unity 6 | Core game engine |
+| C# | Primary programming language |
+| Unity DOTS | Data-oriented architecture |
+| Entity Component System (ECS) | Large-scale entity simulation |
+| Unity Job System | Multithreaded computation |
+| Burst Compiler | High-performance native code generation |
+| Unity Collections | Native data structures and memory management |
+| Unity Mathematics | Performance-oriented mathematical operations |
+| Entities Graphics | Large-scale entity rendering |
+| Universal Render Pipeline (URP) | Rendering infrastructure |
+| Unity Input System | Player input and interaction |
+| Unity Test Framework | Automated testing and validation |
+| OpenAI Codex | AI agentic software development |
+| Git & GitHub | Version control and public development |
 
-- `step_wall_ms` 从早期 Update 开步计到帧末回调完成，包含窗口内的其他主线程活动。 `frame_wall_ms` 是相邻两次早期 Update 的墙钟间隔，上一帧记录在下一次 Update 补齐，包含引擎开销、等待和探针开销。
-- B/C 的 `sync_dispatch_wall_ms` 包含 ECS 系统更新和同步作业。D/E 的 `schedule_dispatch_wall_ms` 包含系统更新、调度和派发，`complete_wall_ms` 包含完成依赖时的等待及调用开销。单独的 worker 执行时长和线程 CPU 时间留为 `N/A`。
-- `main_thread_profiler_ms` 使用 Unity 的 `Main Thread` 标记。GC 分配与总使用／保留内存使用 Unity 的字节计数器。汇入前检查名称、类别、单位和该帧是否出现新样本。无法确认的值写为 `N/A`。内存值是引擎级观测，覆盖整个进程的 Unity 工作负载。
-- 百分位按排序后的零基秩 `(n - 1) × p` 在线性相邻样本之间插值。总体标准差的分母为有效样本数。吞吐量为单位数 × 样本数 ÷ 对应时长总和（秒），分别针对开步窗口和完整帧计算。零单位基线单独导出，原始测量值保留。
+## Core Technical Areas
 
-每次运行在采样结束后按稳定索引与相同种子生成的托管参考比较。位置容差为默认场地最大坐标量级的一个 float ULP，速度精确比较。诊断作业在启动时独立执行，计时窗口内使用常规实体 archetype。
+### Data-Oriented Design
 
+Explore the advantages of ECS and data-oriented programming over traditional object-oriented GameObject architectures, particularly when processing thousands of independent units.
+
+### Parallel Computing
+
+Utilize the Unity Job System and Burst Compiler to distribute computational workloads across CPU cores and improve simulation scalability.
+
+### Performance Engineering
+
+Investigate CPU and GPU bottlenecks through controlled experiments, profiling, benchmarking, and architectural optimization.
+
+Key areas of interest include:
+
+- Main-thread workload reduction.
+- Multithreaded job scheduling.
+- Memory access patterns and cache efficiency.
+- Native memory management.
+- GPU instancing and batch rendering.
+- Rendering scalability.
+- Algorithmic complexity.
+
+### Large-Scale Gameplay Algorithms
+
+Research and implement algorithms suitable for large-scale RTS simulations, including:
+
+- Spatial hashing and spatial partitioning.
+- Efficient neighbor searching.
+- Formation generation and slot assignment.
+- Local collision avoidance.
+- Crowd simulation.
+- A* pathfinding.
+- Flow field pathfinding.
+- Large-scale combat simulation.
+
+### Developer Tooling
+
+Develop custom Unity Editor extensions and debugging tools to improve development efficiency, particularly when working with ECS-based gameplay systems.
+
+## Current Development Progress
+
+PROJECTLEGION is currently in active development.
+
+### Core Gameplay Systems
+
+- [x] RTS camera controller
+- [x] ECS-based unit spawning
+- [x] Entities Graphics rendering
+- [x] Single-unit selection
+- [x] Multi-unit box selection
+- [x] Group movement commands
+- [x] Parallel ECS unit movement
+- [x] Rectangular formation generation
+- [x] Spatial sorting-based formation slot assignment
+- [ ] Spatial hashing and neighbor searching
+- [ ] Local collision avoidance
+- [ ] Crowd congestion management
+- [ ] Large-scale pathfinding
+- [ ] Combat and attack commands
+
+### Performance Research
+
+- [x] MonoBehaviour movement baseline
+- [x] ECS main-thread execution benchmark
+- [x] Burst-compiled execution benchmark
+- [x] Parallel Job System benchmark
+- [x] Burst and parallel job comparison
+- [x] Automated benchmark data collection
+- [ ] Comprehensive GPU rendering benchmarks
+- [ ] Large-scale crowd simulation benchmarks
+- [ ] Pathfinding performance benchmarks
+- [ ] Full gameplay performance evaluation
+
+### Developer Tools & Engineering
+
+- [x] Custom ECS entity hierarchy framing tool
+- [x] AI agent development guidelines
+- [x] Structured Git development workflow
+- [x] Automated Edit Mode and Play Mode testing
+- [ ] Additional ECS debugging and visualization tools
+
+## Current Milestone
+
+The current prototype supports ECS-based spawning, selection, movement, and formation assignment with **10,000 units**.
+
+Formation slots are assigned using a spatial sorting algorithm with O(n log n) time complexity, providing a scalable alternative to more computationally expensive assignment algorithms.
+
+Independent groups can currently intersect and overlap during movement. Spatial hashing, local avoidance, and congestion management are the next major development milestones.
+
+The current unit count represents functional validation rather than a finalized frame-rate or performance guarantee.
+
+## AI Agentic Development
+
+PROJECTLEGION also serves as an experiment in integrating AI coding agents into a structured software engineering workflow.
+
+Rather than relying on unrestricted AI-generated code, the project follows a developer-directed approach in which AI agents assist with implementation under defined architectural, technical, and quality requirements.
+
+The development workflow includes:
+
+1. Technical research and requirement definition.
+2. Architecture and algorithm design.
+3. AI-assisted implementation.
+4. Code review and technical analysis.
+5. Automated testing.
+6. Manual functional validation.
+7. Performance profiling and benchmarking.
+8. Git checkpoints and technical documentation.
+
+Project-specific development guidelines are maintained in `AGENTS.md` to establish architectural constraints, coding standards, performance expectations, testing requirements, and agent permissions.
+
+One of the project's objectives is to investigate how AI agents can improve software development productivity without compromising code quality, maintainability, technical understanding, or developer control.
+
+## Development Philosophy
+
+**Performance is an architectural decision, not an afterthought.**
+
+PROJECTLEGION follows several core engineering principles:
+
+- Choose appropriate algorithms before relying on hardware optimization.
+- Design systems with scalability in mind.
+- Prefer data-oriented approaches for large-scale simulation.
+- Maintain clear separation between gameplay systems.
+- Validate performance improvements through measurable experiments.
+- Prioritize maintainability alongside computational efficiency.
+- Use AI as an engineering tool rather than a replacement for technical understanding.
+
+## Development Logs
+
+This project is being developed publicly.
+
+I will be sharing regular development updates, technical experiments, performance comparisons, implementation challenges, and lessons learned throughout the development process.
+
+Follow the project's progress through this repository and my LinkedIn development logs.
+
+## About the Developer
+
+I am a game and software developer with professional experience in Unity development, industrial simulation, performance optimization, and developer tooling.
+
+PROJECTLEGION represents my continued exploration of advanced game development, high-performance computing, scalable software architecture, and emerging AI-assisted development methodologies.
+
+I welcome technical discussions, feedback, and knowledge sharing from fellow developers interested in these areas.
+
+---
+
+**PROJECTLEGION — Built to explore, engineered to scale.**
