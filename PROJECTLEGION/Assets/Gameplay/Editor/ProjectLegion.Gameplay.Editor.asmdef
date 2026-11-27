@@ -1,6 +1,7 @@
 {
     "name": "ProjectLegion.Gameplay.Editor",
     "references": [
+        "ProjectLegion.Gameplay",
         "Unity.Collections",
         "Unity.Entities",
         "Unity.Entities.Graphics",

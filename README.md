@@ -147,6 +147,83 @@ and a different radius can move a support probe into or out of a narrow void.
 Higher density improves sampling resolution but provides no continuous
 geometry guarantee.
 
+### Phase 8.2 A* Pathfinding
+
+Open [Navigation Playground](PROJECTLEGION/Assets/Gameplay/Scenes/NavigationPlayground.unity)
+and enable Scene View Gizmos. Move **Path Start** and **Path Destination** with
+the Scene View Move tool. On the navigation grid object, use **Build Navigation
+Grid** on the authoring component, then **Run Path Search** on the debugger.
+The cyan and magenta markers show the start and destination, the thick gold
+line follows the node elevations, and blue cubes mark recorded expansions.
+The Inspector shows the result, cost, 3D length, node count, expanded nodes,
+reopens, heap operations, and elapsed search time. **Clear Path** removes the
+result. Rebuilding or releasing the grid invalidates the result immediately.
+Exploration capture and drawing have independent controls. The draw budgets
+limit the visible path prefix and exploration markers without limiting search.
+
+The search uses the grid's connectivity and its weighted 3D edge cost with
+double-precision arithmetic and Burst strict floating-point mode. Straight-line
+3D distance is consistent because each edge costs at least its geometric length,
+and the triangle inequality bounds the change in the heuristic across an edge.
+The heap compares total estimated cost, then remaining distance, then node ID.
+Equal-cost alternatives retain the first parent. The standard
+`O((V + E) log V)` bound assumes a consistent heuristic and at most one
+expansion per node. The implementation tracks reopens on strict improvement
+under floating-point rounding. Reopens add another neighbor scan and heap
+work for each affected expansion. Workspace capacity is linear in grid size.
+Each node reserves 48 bytes: 4 for the search generation, 8 for its G cost,
+12 for its parent, heap index and path output slot, and 24 for the heap entry.
+The result uses 56 bytes and optional exploration capture uses 4 bytes per
+reserved slot. These figures are native buffer payloads and exclude allocator
+metadata. Searches reuse the buffers and initialize a node on its first visit
+in each generation. A full stamp clear occurs only on generation wraparound.
+
+| Grid | Grid payload | Search workspace with 512 exploration slots |
+| --- | ---: | ---: |
+| 64 × 64 | 40,960 B | 198,712 B |
+| 128 × 128 | 163,840 B | 788,536 B |
+| 256 × 256 | 655,360 B | 3,147,832 B |
+
+Single-query measurements used Windows 11 x64, Unity 6000.0.66f2 Editor
+PlayMode batch mode, an i7-12700K and Burst strict floating-point mode.
+Each group ran three warmups and 30 timed synchronous searches including path
+reconstruction. Exploration capture was capped at 512 expansions. Timings
+exclude graph construction, workspace allocation, and Scene View drawing.
+The longest request on an `S × S` graph ran from `(0, 0)` to
+`(S - 1, floor((S - 1) / 2))`.
+
+| Grid | Layout | Capture off median / P95 (ms) | Capture on median / P95 (ms) | Expanded | Heap push / pop / decrease |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 64 × 64 | Open | 0.1622 / 0.1979 | 0.1687 / 0.2261 | 1,140 | 1,289 / 1,141 / 792 |
+| 64 × 64 | Gate | 0.2354 / 0.3421 | 0.2345 / 0.2697 | 1,713 | 1,856 / 1,714 / 1,556 |
+| 64 × 64 | Split | 0.2618 / 0.3312 | 0.2606 / 0.2964 | 2,048 | 2,048 / 2,048 / 1,961 |
+| 128 × 128 | Open | 0.7278 / 0.8597 | 0.7339 / 0.8068 | 4,687 | 4,987 / 4,688 / 3,225 |
+| 128 × 128 | Gate | 1.0169 / 1.2555 | 1.0209 / 1.1123 | 6,889 | 7,173 / 6,890 / 6,055 |
+| 128 × 128 | Split | 1.0973 / 1.3882 | 1.1430 / 1.3088 | 8,192 | 8,192 / 8,192 / 7,727 |
+| 256 × 256 | Open | 3.2418 / 3.5478 | 3.1925 / 3.4314 | 18,976 | 19,576 / 18,977 / 13,188 |
+| 256 × 256 | Gate | 4.3529 / 4.5262 | 4.5257 / 4.7456 | 27,507 | 28,073 / 27,508 / 23,146 |
+| 256 × 256 | Split | 4.9923 / 5.3400 | 4.8826 / 5.0698 | 32,768 | 32,768 / 32,768 / 30,226 |
+
+The split requests above were unreachable. With capture off, the near requests
+had medians of 0.0027–0.0029 ms. Mid-distance medians were 0.0157–0.0163 ms,
+0.0675–0.0692 ms, and 0.3140–0.3184 ms in size order. All timed groups measured
+zero managed allocation on the querying thread and zero node reopens. The
+search allocates no temporary native containers per query. Synthetic graph
+construction took 0.788–0.866 ms, 3.094–3.288 ms, and 12.521–13.025 ms by
+size. Workspace initialization measured 0.005–0.034 ms across these runs.
+
+The 19 × 13 collider-based Navigation Playground built in 9.84 ms on the first
+call, then 3.12–3.57 ms on rebuild. Its grid reserved 2,470 B of persistent
+native payload and used 83,036 B of temporary sampling and query-buffer payload.
+The scene smoke test also verified the default flat route, a route from the
+lowland to the plateau via the ramp, an invalid destination, and result
+invalidation on grid rebuild, grid release, and path clearing.
+In a separate interactive Editor run, the `NavigationPathDebugger.Draw` CPU
+marker measured 0.1205 ms median and 0.3066 ms P95 per invocation over 90
+Profiler Recorder samples for the 10-node ramp route with 16 exploration
+markers. This measures the debugger's draw callback; full Scene View and GPU
+timings were outside the captured marker.
+
 ### Performance Research
 
 - [x] MonoBehaviour movement baseline

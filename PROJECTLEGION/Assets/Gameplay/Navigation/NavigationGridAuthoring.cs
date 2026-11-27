@@ -30,6 +30,7 @@ namespace ProjectLegion.Gameplay
         private NavigationGrid _grid;
         private float _builtOriginY;
         private bool _builtDiagonals;
+        internal NavigationGrid Grid => _grid;
 
         [ContextMenu("Build Navigation Grid")]
         public void Build()

@@ -34,6 +34,9 @@ namespace ProjectLegion.Gameplay
         internal float2 Origin { get; }
         internal float CellSize { get; }
         internal long PayloadBytes => _heights.IsCreated ? (long)_heights.Length * 10 : 0;
+        internal NavigationGraphView AsReadOnly() =>
+            new NavigationGraphView(Size, CellSize, _heights.AsReadOnly(), _costs.AsReadOnly(),
+                _flags.AsReadOnly(), _connections.AsReadOnly());
 
         internal NavigationGrid(int2 size, float2 origin, float cellSize)
         {
@@ -119,16 +122,11 @@ namespace ProjectLegion.Gameplay
         {
             to = default;
             cost = 0;
-            if (!IsConnected(from, direction))
+            if (!_connections.IsCreated || !Contains(from) ||
+                !AsReadOnly().TryGetNeighbor(Index(from), direction, out int index, out cost))
                 return false;
 
-            to = from + Offset(direction);
-            int a = Index(from);
-            int b = Index(to);
-            double run = CellSize;
-            double rise = (double)_heights[b] - _heights[a];
-            double length = math.sqrt(run * run * (direction < 4 ? 1 : 2) + rise * rise);
-            cost = length * ((_costs[a] + _costs[b]) * 0.5);
+            to = new int2(index % Size.x, index / Size.x);
             return true;
         }
 
@@ -138,6 +136,56 @@ namespace ProjectLegion.Gameplay
             if (_costs.IsCreated) _costs.Dispose();
             if (_flags.IsCreated) _flags.Dispose();
             if (_connections.IsCreated) _connections.Dispose();
+        }
+    }
+
+    internal readonly struct NavigationGraphView
+    {
+        internal readonly int2 Size;
+        private readonly double _cellSize;
+        private readonly NativeArray<float>.ReadOnly _heights, _costs;
+        private readonly NativeArray<byte>.ReadOnly _flags, _connections;
+
+        internal NavigationGraphView(int2 size, double cellSize, NativeArray<float>.ReadOnly heights,
+            NativeArray<float>.ReadOnly costs, NativeArray<byte>.ReadOnly flags,
+            NativeArray<byte>.ReadOnly connections)
+        {
+            Size = size;
+            _cellSize = cellSize;
+            _heights = heights;
+            _costs = costs;
+            _flags = flags;
+            _connections = connections;
+        }
+
+        internal int Index(int2 cell) => cell.y * Size.x + cell.x;
+        internal int2 Cell(int index) => new int2(index % Size.x, index / Size.x);
+        internal bool IsWalkable(int2 cell) =>
+            math.all(cell >= 0 & cell < Size) && (_flags[Index(cell)] & 2) != 0;
+
+        internal bool TryGetNeighbor(int from, int direction, out int to, out double cost)
+        {
+            to = -1;
+            cost = 0;
+            if ((uint)direction >= 8 || (_connections[from] & (1 << direction)) == 0)
+                return false;
+
+            int2 offset = NavigationGrid.Offset(direction);
+            to = from + offset.y * Size.x + offset.x;
+            cost = Distance(from, to, direction < 4 ? 1 : 2) * (((double)_costs[from] + _costs[to]) * 0.5);
+            return true;
+        }
+
+        internal double Distance(int from, int to)
+        {
+            double2 delta = (double2)Cell(to) - Cell(from);
+            return Distance(from, to, math.dot(delta, delta));
+        }
+
+        private double Distance(int from, int to, double horizontalCellsSquared)
+        {
+            double rise = (double)_heights[to] - _heights[from];
+            return math.sqrt(_cellSize * _cellSize * horizontalCellsSquared + rise * rise);
         }
     }
 }

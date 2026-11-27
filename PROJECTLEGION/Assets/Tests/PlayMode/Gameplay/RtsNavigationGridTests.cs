@@ -89,6 +89,10 @@ namespace ProjectLegion.Gameplay.Tests
             Assert.That(grid.IsConnected(int2.zero, 0), Is.False);
             Assert.That(grid.IsConnected(new int2(0, 1), 0), Is.True);
             Assert.That(Reachable(grid, int2.zero, new int2(2, 0)), Is.True);
+            using var search = new NavigationPathfinder(6);
+            var path = RtsNavigationPathfindingTests.AssertOptimal(grid, search, int2.zero, new int2(2, 0));
+            Assert.That(path.Length, Is.GreaterThan(2));
+            Assert.That(search.PathNode(1), Is.EqualTo(3));
         }
 
         [TestCase(false)]
@@ -135,6 +139,9 @@ namespace ProjectLegion.Gameplay.Tests
             Assert.That(grid.IsConnected(int2.zero, 0), Is.False);
             Assert.That(grid.IsConnected(int2.zero, 4), Is.False);
             Assert.That(Reachable(grid, int2.zero, new int2(1, 1)), Is.True);
+            using var search = new NavigationPathfinder(4);
+            var path = RtsNavigationPathfindingTests.AssertOptimal(grid, search, int2.zero, new int2(1, 1));
+            Assert.That(path.PathCount, Is.EqualTo(3));
         }
 
         [Test]
@@ -156,6 +163,13 @@ namespace ProjectLegion.Gameplay.Tests
             settings.AgentHeight = 0.6f;
             using var wide = geometry.Build(settings, out _);
             Assert.That(wide.TryGetNode(int2.zero, out node) && node.Walkable, Is.False);
+            using var search = new NavigationPathfinder(2);
+            Assert.That(RtsNavigationPathfindingTests.AssertOptimal(small, search, int2.zero, new int2(1, 0))
+                .PathCount, Is.EqualTo(2));
+            Assert.That(search.Search(wide, int2.zero, new int2(1, 0)).Status,
+                Is.EqualTo(NavigationPathStatus.InvalidStart));
+            Assert.That(search.Search(small, int2.zero, new int2(2, 0)).Status,
+                Is.EqualTo(NavigationPathStatus.InvalidDestination));
         }
 
         [TestCase(0.6f, false)]
