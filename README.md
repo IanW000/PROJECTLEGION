@@ -224,6 +224,98 @@ Profiler Recorder samples for the 10-node ramp route with 16 exploration
 markers. This measures the debugger's draw callback; full Scene View and GPU
 timings were outside the captured marker.
 
+### Phase 8.3 Parallel Pathfinding
+
+In Navigation Playground, build the navigation grid and open the **Navigation
+Batch Debugger** on the same object. Set the request count, requested
+workspaces, queue size, memory and per-update budgets, then select **Start or
+Repeat Batch**. The panel reports accepted work, concurrency, throughput,
+latency, dispatch and collection times, and payload usage. Its P95 uses the
+last 4,096 results, while the mean and maximum cover the batch. Enable **Show
+Path Preview** to draw a bounded prefix of one sampled successful route.
+**Cancel Batch** invalidates outstanding requests immediately. **Clear Batch
+Results** clears the display and releases the batch buffers after active jobs
+return. Start a new batch after the cancelled jobs have drained.
+
+The scheduler is owned by the main thread. Each submitted search uses the same
+Burst A* kernel as the synchronous debugger and owns one exclusive workspace
+until collection. The scheduler polls each job and completes only reported
+finished jobs during normal dispatch and collection. The grid tracks reader
+dependencies and retires its arrays through dependent disposal jobs. The
+owning components may wait during final shutdown or unload. Grid rebuilds
+defer while a previous retirement is pending; retry the build after it drains.
+
+Request IDs increase within the scheduler, revisions increase on replacement,
+and grid generations increase when the scheduler changes snapshots. Handles
+carry all three plus a scheduler identity and slot. Slot reuse never revives
+an old handle. Cancellation or replacement invalidates old results immediately.
+A submitted worker still runs to completion and its eventual result is
+discarded if superseded. A full queue rejects new submissions and replacements
+that need a new queue position. Accepted requests dispatch FIFO, and an accepted
+replacement joins the tail.
+
+A completed search keeps its workspace until the scheduler reserves all the
+result blocks and copies its path under the per-update node budget. Results
+own those blocks independently of the workspace. Consumers validate the handle,
+copy any needed nodes, then release it. Invalidation or replacement also
+reclaims any complete or partial copy. When retained paths fill the arena,
+submission and dispatch eventually experience backpressure. A single path
+larger than the whole arena returns an explicit capacity failure.
+
+Each workspace reserves `48 × node count + 56` bytes. A result block holds 32
+node indices and one link (132 bytes). The navigation budget covers grid
+payloads, the new grid and estimated build buffers before a rebuild, request
+storage, workspaces, and the result arena. While a grid retires, its payload
+remains charged. Workspaces are resized only after the old work drains, and the
+old pool is released before allocating its replacement. The budget excludes
+allocator metadata, Job System internals, Burst compilation, and managed
+objects and diagnostic scratch arrays. It is a buffer budget, so process RSS
+and allocator reserved memory can differ. Changing a budget does not reclaim
+already-allocated buffers mid-job.
+The saved Playground smoke test reached 859,752 B of accounted payload while
+rebuilding the 19 × 13 grid with a default four-workspace batch allocated.
+
+The Gameplay PlayMode scheduler tests include a maximum-throughput pump
+and separate paced 60/120 Hz Unity frame loops. They report latency and queue
+distributions separately for short and expensive requests. The frame tests
+use a test world with 1,000 moving units and the existing movement, avoidance,
+spatial grid, and overlap systems. Scheduler main-thread timings include
+submission, dispatch, collection, and result release. The A* profiler marker
+sums worker execution and can exceed batch wall time because searches overlap.
+The timed steady-state runs exclude construction and workspace warm-up.
+
+Observed in Unity 6000.0.66f2 Windows x64 Editor PlayMode on an i7-12700K,
+with Burst and safety checks enabled. The following batch wall times in
+milliseconds used a 64 × 64 graph with 90% short reachable and 10% expensive
+unreachable requests.
+
+| Requests | 1 workspace | 2 | 4 | 8 | 16 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 100 | 3.748 | 1.838 | 1.055 | 0.877 | 0.870 |
+| 1,000 | 35.464 | 17.325 | 9.178 | 7.406 | 6.196 |
+| 10,000 | 351.035 | 171.250 | 86.933 | 58.492 | 53.673 |
+
+On the 256 × 256 split graph, 1,000 requests took 130.049 ms with four
+workspaces and 56.399 ms with sixteen. With sixteen, cumulative A* worker
+time was 823.045 ms and peak graph plus scheduler payload was 51,287,808 B.
+The paced 128 × 128 frame tests used eight workspaces, 600 requests and
+96 game updates each. Values in the next table are mean / P95 / max in ms.
+
+| Rate | Short latency | Expensive latency | Short queue | Expensive queue | Main-thread scheduler |
+| --- | --- | --- | --- | --- | --- |
+| 60 Hz | 233.528 / 266.685 / 266.977 | 231.671 / 266.685 / 266.973 | 216.908 / 250.107 / 250.408 | 215.049 / 250.094 / 250.393 | 0.075 / 0.132 / 0.190 |
+| 120 Hz | 116.735 / 133.404 / 133.749 | 115.793 / 133.349 / 133.419 | 108.449 / 125.113 / 125.689 | 107.516 / 125.118 / 125.608 | 0.074 / 0.142 / 0.406 |
+
+Gameplay step P95 without and with scheduling was 0.759 / 0.811 ms at 60 Hz
+and 0.570 / 0.852 ms at 120 Hz. These samples include game-system dependency
+completion in the test world.
+Measured scheduler-thread managed allocations were 0 B in all timed runs.
+In the 5,000-replacement case, maximum logical invalidation time was 0.166 ms
+and ten detached worker slots returned in 5.463 ms on average, 6.035 ms
+maximum. The last valid result published in 0.093 ms with fixed native
+payload. A separate final shutdown with eight expensive jobs waiting took
+10.122 ms to synchronize.
+
 ### Performance Research
 
 - [x] MonoBehaviour movement baseline

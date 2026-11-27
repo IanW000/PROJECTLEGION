@@ -1,4 +1,5 @@
 using System;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -27,15 +28,44 @@ namespace ProjectLegion.Gameplay
         [SerializeField, Min(1f)] private float _debugRadius = 15;
         [SerializeField, Range(1, 2048)] private int _debugNodeBudget = 512;
         [SerializeField] private bool _showNumericLabels;
+        [SerializeField, Min(1)] private int _navigationMemoryMiB = 96;
         private NavigationGrid _grid;
+        private JobHandle _retirement;
+        private long _retiredBytes;
         private float _builtOriginY;
         private bool _builtDiagonals;
         internal NavigationGrid Grid => _grid;
+        internal long BatchPayloadBytes { get; set; }
+        internal long MemoryBudgetBytes => (long)Mathf.Max(1, _navigationMemoryMiB) * 1024 * 1024;
+        internal long PeakPayloadBytes { get; private set; }
+        internal long LiveGridBytes
+        {
+            get
+            {
+                CollectRetiredGrid();
+                return (_grid?.PayloadBytes ?? 0) + _retiredBytes;
+            }
+        }
+        internal double FinalDisposalMilliseconds { get; private set; }
 
         [ContextMenu("Build Navigation Grid")]
         public void Build()
         {
             var physics = gameObject.scene.GetPhysicsScene();
+            CollectRetiredGrid();
+            if (_retiredBytes != 0)
+            {
+                Debug.LogWarning("Grid rebuild deferred. Retry after old grid readers finish.", this);
+                return;
+            }
+            long peak = LiveGridBytes + BatchPayloadBytes +
+                NavigationGridBuilder.EstimateBuildPayload(physics, transform.position, _settings);
+            if (peak > MemoryBudgetBytes)
+            {
+                Debug.LogWarning($"Grid rebuild requires {peak:N0} B of payload, above the navigation budget.", this);
+                return;
+            }
+            ObservePayload(peak);
             Physics.SyncTransforms();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             NavigationGrid replacement = NavigationGridBuilder.Build(physics, transform.position, _settings, out var metrics);
@@ -53,12 +83,43 @@ namespace ProjectLegion.Gameplay
         [ContextMenu("Clear Navigation Grid")]
         public void Release()
         {
-            _grid?.Dispose();
+            if (_grid == null)
+                return;
+            long bytes = _grid.PayloadBytes;
+            JobHandle handle = _grid.Retire();
             _grid = null;
+            if (handle.IsCompleted)
+            {
+                handle.Complete();
+                return;
+            }
+            _retirement = JobHandle.CombineDependencies(_retirement, handle);
+            _retiredBytes += bytes;
+            JobHandle.ScheduleBatchedJobs();
+        }
+
+        internal void ObservePayload(long bytes) => PeakPayloadBytes = Math.Max(PeakPayloadBytes, bytes);
+
+        private void CollectRetiredGrid()
+        {
+            if (_retiredBytes != 0 && _retirement.IsCompleted)
+            {
+                _retirement.Complete();
+                _retiredBytes = 0;
+            }
         }
 
         private void OnDisable() => Release();
-        private void OnDestroy() => Release();
+
+        private void OnDestroy()
+        {
+            Release();
+            long begin = System.Diagnostics.Stopwatch.GetTimestamp();
+            _retirement.Complete();
+            FinalDisposalMilliseconds = (System.Diagnostics.Stopwatch.GetTimestamp() - begin) *
+                1000d / System.Diagnostics.Stopwatch.Frequency;
+            _retiredBytes = 0;
+        }
 
         private void OnDrawGizmosSelected()
         {

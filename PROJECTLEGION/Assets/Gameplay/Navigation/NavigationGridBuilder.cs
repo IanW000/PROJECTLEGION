@@ -50,6 +50,17 @@ namespace ProjectLegion.Gameplay
             internal bool Valid => (Flags & 2) != 0;
         }
 
+        internal static long EstimateBuildPayload(PhysicsScene physics, Vector3 origin,
+            NavigationGridSettings settings)
+        {
+            int factor = Validate(physics, origin, settings);
+            long width = (long)settings.Size.x * factor + 1;
+            long depth = (long)settings.Size.y * factor + 1;
+            return (long)settings.Size.x * settings.Size.y * 10 +
+                width * depth * UnsafeUtility.SizeOf<Sample>() +
+                HitCapacity * UnsafeUtility.SizeOf<RaycastHit>() + IntPtr.Size;
+        }
+
         internal static NavigationGrid Build(PhysicsScene physics, Vector3 origin, NavigationGridSettings settings,
             out NavigationBuildMetrics metrics)
         {

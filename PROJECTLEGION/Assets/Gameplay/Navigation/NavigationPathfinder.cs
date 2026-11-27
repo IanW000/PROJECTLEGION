@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
+using Unity.Profiling;
 
 namespace ProjectLegion.Gameplay
 {
@@ -59,13 +60,31 @@ namespace ProjectLegion.Gameplay
 
         internal NavigationPathResult Search(NavigationGrid grid, int2 start, int2 destination, bool record = false)
         {
+            CreateJob(grid, start, destination, record).Run();
+            return ReadResult();
+        }
+
+        internal JobHandle Schedule(NavigationGrid grid, int2 start, int2 destination)
+        {
+            JobHandle handle = CreateJob(grid, start, destination, false).Schedule();
+            grid.RegisterReader(handle);
+            return handle;
+        }
+
+        internal NavigationPathResult ReadResult() => _result[0];
+
+        private SearchJob CreateJob(NavigationGrid grid, int2 start, int2 destination, bool record)
+        {
             if (!_result.IsCreated)
                 throw new ObjectDisposedException(nameof(NavigationPathfinder));
+            if (!grid.IsCreated)
+                throw new ObjectDisposedException(nameof(NavigationGrid));
             if ((long)grid.Size.x * grid.Size.y > Capacity)
                 throw new ArgumentException("Search workspace is smaller than the graph.", nameof(grid));
-
             uint generation = unchecked(++_generation);
-            new SearchJob
+            if (generation == 0)
+                _generation = 1;
+            return new SearchJob
             {
                 Graph = grid.AsReadOnly(),
                 Start = start,
@@ -80,10 +99,7 @@ namespace ProjectLegion.Gameplay
                 Path = _path,
                 Explored = _explored,
                 Output = _result
-            }.Run();
-            if (generation == 0)
-                _generation = 1;
-            return _result[0];
+            };
         }
 
         internal int PathNode(int index) => ResultNode(_path, index, _result[0].PathCount);
@@ -111,6 +127,7 @@ namespace ProjectLegion.Gameplay
         [BurstCompile(CompileSynchronously = true, FloatMode = FloatMode.Strict)]
         private struct SearchJob : IJob
         {
+            private static readonly ProfilerMarker SearchMarker = new ProfilerMarker("Navigation.AStar.Search");
             internal NavigationGraphView Graph;
             internal int2 Start, Destination;
             internal uint Generation;
@@ -123,6 +140,7 @@ namespace ProjectLegion.Gameplay
 
             public void Execute()
             {
+                using var scope = SearchMarker.Auto();
                 if (Generation == 0)
                 {
                     for (int i = 0; i < Stamps.Length; i++)

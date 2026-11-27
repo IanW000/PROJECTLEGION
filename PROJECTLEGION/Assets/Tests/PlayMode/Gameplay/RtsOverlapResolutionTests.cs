@@ -322,7 +322,7 @@ namespace ProjectLegion.Gameplay.Tests
             public override string ToString() => $"{Count} pairs, mean {(Count == 0 ? 0.0 : _sum / Count):F6}, max {MaxDepth:F6}";
         }
 
-        private sealed class Simulation : IDisposable
+        internal sealed class Simulation : IDisposable
         {
             private readonly World _world = new World("Overlap resolution test");
             private readonly UnitOverlapResolutionSystem _correction;

@@ -1,5 +1,6 @@
 using System;
 using Unity.Collections;
+using Unity.Jobs;
 using Unity.Mathematics;
 
 namespace ProjectLegion.Gameplay
@@ -30,6 +31,9 @@ namespace ProjectLegion.Gameplay
 
         private NativeArray<float> _heights, _costs;
         private NativeArray<byte> _flags, _connections;
+        private JobHandle _readers;
+        private bool _hasReaders;
+        internal bool IsCreated => _heights.IsCreated;
         internal int2 Size { get; }
         internal float2 Origin { get; }
         internal float CellSize { get; }
@@ -132,10 +136,45 @@ namespace ProjectLegion.Gameplay
 
         public void Dispose()
         {
+            Retire().Complete();
+        }
+
+        internal void RegisterReader(JobHandle handle)
+        {
+            if (!_hasReaders)
+            {
+                _hasReaders = true;
+                _readers = handle;
+            }
+            else if (_readers.IsCompleted)
+            {
+                _readers.Complete();
+                _readers = handle;
+            }
+            else
+                _readers = JobHandle.CombineDependencies(_readers, handle);
+        }
+
+        internal JobHandle Retire()
+        {
+            if (!IsCreated)
+                return default;
+            if (_hasReaders && !_readers.IsCompleted)
+            {
+                var a = _heights.Dispose(_readers);
+                var b = _costs.Dispose(_readers);
+                var c = _flags.Dispose(_readers);
+                var d = _connections.Dispose(_readers);
+                return JobHandle.CombineDependencies(JobHandle.CombineDependencies(a, b),
+                    JobHandle.CombineDependencies(c, d));
+            }
+            if (_hasReaders)
+                _readers.Complete();
             if (_heights.IsCreated) _heights.Dispose();
             if (_costs.IsCreated) _costs.Dispose();
             if (_flags.IsCreated) _flags.Dispose();
             if (_connections.IsCreated) _connections.Dispose();
+            return default;
         }
     }
 
