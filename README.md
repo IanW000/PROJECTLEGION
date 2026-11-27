@@ -316,6 +316,92 @@ maximum. The last valid result published in 0.093 ms with fixed native
 payload. A separate final shutdown with eight expensive jobs waiting took
 10.122 ms to synchronize.
 
+### Phase 8.4 Flow Fields
+
+Open Navigation Playground, build the navigation grid, and select the navigation
+grid object with Scene View Gizmos enabled. Move **Flow Goal** or the **Flow
+Start** markers with the Move tool. Use **Build Flow Field** and **Clear Flow
+Field** on the Flow Debugger. The heatmap normalizes against the highest finite
+integration cost. White arrows show the next legal step, coral crosses mark
+blocked nodes, violet wire squares mark unreachable nodes, and a yellow ring
+marks the goal. Magenta lines follow the field from the sample starts. Layers,
+focus radius, node count, and sample-path steps have independent controls.
+
+The integration job runs reverse Dijkstra. It probes candidate predecessors
+using the original outgoing connectivity and charges the forward edge cost.
+The direction job selects a legal outgoing edge satisfying the Bellman
+equation, with fixed direction order for ties. Every published step strictly
+decreases the integration cost. If floating-point precision prevents a valid
+descending optimum, construction reports a numerical failure. Queries return
+the state and next node without exposing the direction encoding.
+
+A completed field owns its integration and direction arrays independently of
+the builder. Each destination uses 9 bytes per grid node. The reusable
+construction workspace uses 28 bytes per node plus a small statistics array.
+The debugger keeps one published result and charges any in-flight or retiring
+buffers against the navigation budget.
+
+Acquire views on the owner thread against the current grid snapshot and
+generation. For synchronous work, use the view during that acquisition scope.
+For a Job, acquire, schedule and register its Reader before returning control
+to the owner. Never cache a view for a future schedule. Grid invalidation
+blocks new acquisitions immediately. In-flight readers can finish safely,
+and their derived results need a current-generation check before publication.
+The grid retires after its build Readers, and the field retires after its
+consumer Readers. A completed field no longer needs its build workspace.
+
+Measurements used Unity 6000.0.66f2 Windows x64 Editor PlayMode on an
+i7-12700K with Burst and safety checks. Values below are medians of five
+warmed asynchronous builds in milliseconds, excluding synthetic graph
+construction and visualization.
+
+| Layout | 64² | 128² | 256² | 512² |
+| --- | ---: | ---: | ---: | ---: |
+| Open | 0.723 | 2.838 | 12.077 | 51.409 |
+| Weighted | 0.815 | 3.159 | 12.901 | 55.022 |
+| Bottleneck | 0.714 | 2.844 | 11.753 | 51.449 |
+| Disconnected | 0.426 | 1.368 | 5.820 | 24.051 |
+
+For 512² weighted terrain, integration took 52.002 ms and direction
+generation used 28.025 ms of cumulative worker CPU. Parallel direction
+chunks overlap in wall time. Main-thread dispatch and publication took
+0.0248 ms and 0.0048 ms. The field used 2,359,296 B and the workspace used
+7,340,056 B, including 24 B of build statistics. A second retained
+destination adds another 2,359,296 B. Steady builds reuse the workspace
+and allocate two new output arrays plus one managed field owner.
+
+| Consumers, 128² bottleneck | One lookup (ms) | Follow to goal (ms) | Materialize path (ms) |
+| ---: | ---: | ---: | ---: |
+| 100 | 0.0014 | 0.0500 | 0.0561 |
+| 1,000 | 0.0074 | 0.5034 | 0.5618 |
+| 10,000 | 0.0788 | 5.0574 | 5.5358 |
+
+The 10,000 continuous consumers made 1,395,784 successful next-node lookups.
+These are Burst batch timings. Full path output reuses caller-owned storage.
+A separate allocation probe detected no `GC.Alloc` activity for 500 warmed
+lookup dispatches and detected allocation activity when building new fields.
+On this Editor backend, the thread allocation byte counter also returned
+zero for a known 16 KiB allocation. Exact managed allocation bytes are
+unavailable from that counter.
+
+For a shared goal on a 128² open grid, compare one field build plus the
+requested delivery against the same A* delivery. The first sampled
+crossovers for next step, continuous traversal and full materialization
+fell in the same intervals below. The parallel baseline used four workspaces.
+
+| Starts | Compared with synchronous A* | Compared with parallel A* |
+| --- | --- | --- |
+| Near goal | (1,024, 4,096] | (256, 1,024] |
+| Far from goal | (4, 16] | (16, 64] |
+
+For 64 far starts requesting full paths, Flow Field took 2.849 ms including
+construction, synchronous A* took 30.104 ms, and parallel A* took 8.379 ms.
+Parallel A* accumulated 31.328 ms of search worker CPU. The crossover depends
+on the graph and path lengths, and the samples exclude rendering.
+The interactive Playground draw callback, with all four layers enabled and
+42 reachable nodes, measured 0.0826 ms median and 0.0997 ms P95 across 89 CPU
+samples. This scope excludes the rest of the Scene View and GPU rendering.
+
 ### Performance Research
 
 - [x] MonoBehaviour movement baseline

@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
@@ -33,7 +34,9 @@ namespace ProjectLegion.Gameplay
         private NativeArray<byte> _flags, _connections;
         private JobHandle _readers;
         private bool _hasReaders;
+        private static long _nextGeneration;
         internal bool IsCreated => _heights.IsCreated;
+        internal long Generation { get; } = Interlocked.Increment(ref _nextGeneration);
         internal int2 Size { get; }
         internal float2 Origin { get; }
         internal float CellSize { get; }
@@ -116,10 +119,14 @@ namespace ProjectLegion.Gameplay
 
         internal void Connect(int2 from, int2 to, int direction)
         {
-            int a = Index(from);
-            int b = Index(to);
-            _connections[a] |= (byte)(1 << direction);
-            _connections[b] |= (byte)(1 << (direction ^ 2));
+            ConnectDirected(from, direction);
+            ConnectDirected(to, direction ^ 2);
+        }
+
+        internal void ConnectDirected(int2 from, int direction)
+        {
+            int index = Index(from);
+            _connections[index] |= (byte)(1 << direction);
         }
 
         internal bool TryGetNeighbor(int2 from, int direction, out int2 to, out double cost)

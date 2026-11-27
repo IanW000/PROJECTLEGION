@@ -93,6 +93,9 @@ namespace ProjectLegion.Gameplay.Tests
             var path = RtsNavigationPathfindingTests.AssertOptimal(grid, search, int2.zero, new int2(2, 0));
             Assert.That(path.Length, Is.GreaterThan(2));
             Assert.That(search.PathNode(1), Is.EqualTo(3));
+            using var builder = new NavigationFlowFieldBuilder(6);
+            using var flow = RtsNavigationFlowFieldTests.Build(builder, grid, new int2(2, 0));
+            RtsNavigationFlowFieldTests.AssertOptimal(grid, flow);
         }
 
         [TestCase(false)]
@@ -142,6 +145,9 @@ namespace ProjectLegion.Gameplay.Tests
             using var search = new NavigationPathfinder(4);
             var path = RtsNavigationPathfindingTests.AssertOptimal(grid, search, int2.zero, new int2(1, 1));
             Assert.That(path.PathCount, Is.EqualTo(3));
+            using var builder = new NavigationFlowFieldBuilder(4);
+            using var flow = RtsNavigationFlowFieldTests.Build(builder, grid, new int2(1, 1));
+            RtsNavigationFlowFieldTests.AssertOptimal(grid, flow);
         }
 
         [Test]
@@ -170,6 +176,10 @@ namespace ProjectLegion.Gameplay.Tests
                 Is.EqualTo(NavigationPathStatus.InvalidStart));
             Assert.That(search.Search(small, int2.zero, new int2(2, 0)).Status,
                 Is.EqualTo(NavigationPathStatus.InvalidDestination));
+            using var builder = new NavigationFlowFieldBuilder(2);
+            using var flow = RtsNavigationFlowFieldTests.Build(builder, small, new int2(1, 0));
+            RtsNavigationFlowFieldTests.AssertOptimal(small, flow);
+            Assert.That(builder.Begin(wide, new int2(1, 0), true), Is.EqualTo(NavigationFlowBuildStatus.InvalidGoal));
         }
 
         [TestCase(0.6f, false)]
