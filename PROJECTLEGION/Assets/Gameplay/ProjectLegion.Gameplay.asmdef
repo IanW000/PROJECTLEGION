@@ -1,0 +1,4 @@
+{
+    "name": "ProjectLegion.Gameplay",
+    "references": ["Unity.InputSystem", "Unity.Burst", "Unity.Entities", "Unity.Entities.Hybrid", "Unity.Entities.Graphics", "Unity.Collections", "Unity.Mathematics", "Unity.Mathematics.Extensions", "Unity.Transforms"]
+}
