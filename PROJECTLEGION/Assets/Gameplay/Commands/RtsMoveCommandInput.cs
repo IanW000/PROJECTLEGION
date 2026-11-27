@@ -10,6 +10,8 @@ namespace ProjectLegion.Gameplay
     public sealed class RtsMoveCommandInput : MonoBehaviour
     {
         [SerializeField] private MeshFilter _ground;
+        [SerializeField, Min(RectangularFormation.MinimumSpacing)]
+        private float _formationSpacing = RectangularFormation.DefaultSpacing;
         private Camera _camera;
         private InputAction _move;
         private Vector2 _pointer;
@@ -63,7 +65,7 @@ namespace ProjectLegion.Gameplay
                 Vector3.Dot(ray.direction, _camera.transform.forward);
             if (TryGetGroundPoint(_ground, ray, maxDistance, out Vector3 destination))
                 world.GetExistingSystemManaged<UnitMoveCommandSystem>()?.IssueMove(
-                    new Unity.Mathematics.float2(destination.x, destination.z));
+                    new Unity.Mathematics.float2(destination.x, destination.z), _formationSpacing);
         }
 
         internal static bool TryGetGroundPoint(MeshFilter ground, Ray ray, float maxDistance, out Vector3 point)

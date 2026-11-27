@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Core;
 using Unity.Entities;
@@ -58,37 +59,52 @@ namespace ProjectLegion.Gameplay.Tests
             manager.Instantiate(template, units);
             manager.DestroyEntity(template);
             for (int i = 0; i < units.Length; i++)
+            {
                 manager.SetComponentEnabled<UnitSelected>(units[i], i % 2 == 0);
+                manager.SetComponentData(units[i], new UnitId { Value = (ulong)i + 1 });
+            }
 
             commands.IssueMove(new float2(0f, 5f));
+            Step(world, commands, movement, 0f);
+            for (int i = 0; i < units.Length; i++)
+                Assert.That(manager.IsComponentEnabled<UnitMoveTarget>(units[i]), Is.EqualTo(i % 2 == 0));
+
             Step(world, commands, movement, 0.25f);
             for (int i = 0; i < units.Length; i++)
             {
-                Assert.That(manager.IsComponentEnabled<UnitMoveTarget>(units[i]), Is.EqualTo(i % 2 == 0));
-                Assert.That(manager.GetComponentData<LocalTransform>(units[i]).Position.z, Is.EqualTo(i % 2 == 0 ? 1f : 0f));
+                float distance = math.length(manager.GetComponentData<LocalTransform>(units[i]).Position.xz);
+                Assert.That(distance, Is.LessThanOrEqualTo(1.0001f));
+                if (i % 2 != 0)
+                    Assert.That(distance, Is.Zero);
             }
 
-            Step(world, commands, movement, 2f);
+            Step(world, commands, movement, 30f);
             for (int i = 0; i < units.Length; i++)
             {
                 Assert.That(manager.IsComponentEnabled<UnitMoveTarget>(units[i]), Is.False);
-                Assert.That(manager.GetComponentData<LocalTransform>(units[i]).Position.z, Is.EqualTo(i % 2 == 0 ? 5f : 0f));
                 manager.SetComponentEnabled<UnitSelected>(units[i], true);
             }
 
-            commands.IssueMove(new float2(4f, 5f));
-            Step(world, commands, movement, 0.25f);
+            var center = new float2(4f, 5f);
+            commands.IssueMove(center, 1.5f);
+            Step(world, commands, movement, 0f);
+            var slots = new HashSet<float2>();
+            double2 sum = default;
             foreach (Entity unit in units)
             {
                 Assert.That(manager.IsComponentEnabled<UnitMoveTarget>(unit), Is.True);
-                Assert.That(manager.GetComponentData<LocalTransform>(unit).Position.x, Is.GreaterThan(0f));
+                float2 slot = manager.GetComponentData<UnitMoveTarget>(unit).DestinationXZ;
+                Assert.That(slots.Add(slot), Is.True);
+                sum += (double2)slot;
             }
+            Assert.That(math.distance((float2)(sum / count), center), Is.LessThan(0.0001f));
 
-            Step(world, commands, movement, 2f);
+            Step(world, commands, movement, 60f);
             foreach (Entity unit in units)
             {
                 Assert.That(manager.IsComponentEnabled<UnitMoveTarget>(unit), Is.False);
-                Assert.That(manager.GetComponentData<LocalTransform>(unit).Position, Is.EqualTo(new float3(4f, 3f, 5f)));
+                Assert.That(manager.GetComponentData<LocalTransform>(unit).Position.xz,
+                    Is.EqualTo(manager.GetComponentData<UnitMoveTarget>(unit).DestinationXZ));
             }
         }
 
@@ -122,7 +138,7 @@ namespace ProjectLegion.Gameplay.Tests
 
         private static Entity CreateUnit(EntityManager manager, bool selected)
         {
-            Entity unit = manager.CreateEntity(typeof(UnitTag), typeof(UnitSelected),
+            Entity unit = manager.CreateEntity(typeof(UnitTag), typeof(UnitSelected), typeof(UnitId),
                 typeof(UnitMoveTarget), typeof(UnitStats), typeof(LocalTransform));
             manager.SetComponentData(unit, new UnitStats { MovementSpeed = 4f });
             manager.SetComponentData(unit, LocalTransform.FromPosition(new float3(0f, 3f, 0f)));
