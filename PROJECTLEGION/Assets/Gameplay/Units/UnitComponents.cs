@@ -36,6 +36,30 @@ namespace ProjectLegion.Gameplay
     internal enum UnitMovementState : byte { Moving, Waiting, Retrying }
     internal enum UnitBlockReason : byte { None, Congestion, ArrivalHold }
 
+    internal enum ArrivalStatus : byte
+    {
+        Approaching, TemporarilyOccupied, PersistentlyOccupied, RouteBlocked, NoAlternative,
+        Alternative, OriginalCompleted, AlternativeCompleted
+    }
+
+    internal struct UnitArrivalState : IComponentData
+    {
+        internal float2 OriginalSlot;
+        internal float2 FormationForward;
+        internal float Spacing;
+        internal double OccupiedSince;
+        internal double QueuedSince;
+        internal double NextRequest;
+        internal double LastProgressTime;
+        internal float BestDistance;
+        internal uint CommandVersion;
+        internal uint FailedCandidates;
+        internal byte AlternativeIndex;
+        internal byte FailedAttempts;
+        internal ArrivalStatus Status;
+        internal bool HasCommand => CommandVersion != 0;
+    }
+
     internal struct UnitMovementProgress : IComponentData
     {
         internal float2 WindowStart;

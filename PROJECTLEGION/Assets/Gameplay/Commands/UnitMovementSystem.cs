@@ -40,7 +40,9 @@ namespace ProjectLegion.Gameplay
             if (!(deltaTime > 0f) || !math.isfinite(deltaTime))
                 return;
 
-            var grid = _avoidance.EnableLocalAvoidance ? World.GetExistingSystemManaged<UnitSpatialGridSystem>() : null;
+            bool manageArrival = World.GetExistingSystemManaged<UnitArrivalSystem>() is { Managing: true };
+            var grid = _avoidance.EnableLocalAvoidance || manageArrival
+                ? World.GetExistingSystemManaged<UnitSpatialGridSystem>() : null;
             var detector = World.GetExistingSystemManaged<UnitStuckDetectionSystem>();
             bool respectWaiting = detector is { Monitoring: true };
             uint epoch = respectWaiting ? detector.Epoch : 0;
@@ -60,6 +62,9 @@ namespace ProjectLegion.Gameplay
                     TargetLookup = GetComponentLookup<UnitMoveTarget>(true),
                     StatsLookup = GetComponentLookup<UnitStats>(true),
                     Progress = progress,
+                    Arrival = GetComponentLookup<UnitArrivalState>(true),
+                    ManageArrival = manageArrival,
+                    UseSteering = _avoidance.EnableLocalAvoidance,
                     RespectWaiting = respectWaiting,
                     Epoch = epoch,
                     Results = GetComponentTypeHandle<UnitAvoidanceVelocity>(),
@@ -76,11 +81,13 @@ namespace ProjectLegion.Gameplay
                 Transforms = GetComponentTypeHandle<LocalTransform>(),
                 Stats = GetComponentTypeHandle<UnitStats>(true),
                 Avoidance = GetComponentTypeHandle<UnitAvoidanceVelocity>(),
+                Arrival = GetComponentTypeHandle<UnitArrivalState>(),
                 Progress = progress,
                 Entities = GetEntityTypeHandle(),
                 RespectWaiting = respectWaiting,
                 Epoch = epoch,
                 UseAvoidance = calculateAvoidance,
+                RequireArrivalSafety = manageArrival,
                 DeltaTime = deltaTime
             }.ScheduleParallel(_movingUnits, Dependency);
         }
@@ -98,6 +105,9 @@ namespace ProjectLegion.Gameplay
             [ReadOnly] public ComponentLookup<UnitMoveTarget> TargetLookup;
             [ReadOnly] public ComponentLookup<UnitStats> StatsLookup;
             [ReadOnly] public ComponentLookup<UnitMovementProgress> Progress;
+            [ReadOnly] public ComponentLookup<UnitArrivalState> Arrival;
+            public bool ManageArrival;
+            public bool UseSteering;
             public bool RespectWaiting;
             public uint Epoch;
             public ComponentTypeHandle<UnitAvoidanceVelocity> Results;
@@ -124,11 +134,15 @@ namespace ProjectLegion.Gameplay
 
             private UnitAvoidanceVelocity Calculate(Entity entity, float2 position, float2 destination, float speed)
             {
+                bool managed = ManageArrival && Arrival.TryGetComponent(entity, out var state) && state.HasCommand;
+                if (!UseSteering && !managed)
+                    return default;
+
                 float2 offset = destination - position;
                 float distance = math.length(offset);
                 if (!math.isfinite(distance) || !math.isfinite(speed) || speed < 0f)
                     return new UnitAvoidanceVelocity { Mode = AvoidanceMove.Hold };
-                if (distance == 0f || speed == 0f)
+                if ((distance == 0f && !managed) || (distance > 0f && speed == 0f))
                     return default;
 
                 float2 desired = LocalAvoidance.DesiredVelocity(offset, speed, DeltaTime);
@@ -139,6 +153,8 @@ namespace ProjectLegion.Gameplay
                     if (arrival != AvoidanceMove.Steer)
                         return new UnitAvoidanceVelocity { Mode = arrival };
                 }
+                if (!UseSteering)
+                    return new UnitAvoidanceVelocity { Mode = canReach ? AvoidanceMove.Hold : AvoidanceMove.Direct };
 
                 float2 steering = float2.zero;
                 var nearest = LocalAvoidance.FindNearest(Grid, entity, position, Settings, out _);
@@ -217,11 +233,13 @@ namespace ProjectLegion.Gameplay
             public ComponentTypeHandle<LocalTransform> Transforms;
             [ReadOnly] public ComponentTypeHandle<UnitStats> Stats;
             public ComponentTypeHandle<UnitAvoidanceVelocity> Avoidance;
+            public ComponentTypeHandle<UnitArrivalState> Arrival;
             [ReadOnly] public ComponentLookup<UnitMovementProgress> Progress;
             [ReadOnly] public EntityTypeHandle Entities;
             public bool RespectWaiting;
             public uint Epoch;
             public bool UseAvoidance;
+            public bool RequireArrivalSafety;
             public float DeltaTime;
 
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask,
@@ -233,8 +251,10 @@ namespace ProjectLegion.Gameplay
                 var stats = chunk.GetNativeArray(ref Stats);
                 var entities = chunk.GetNativeArray(Entities);
                 bool hasAvoidance = chunk.Has(ref Avoidance);
+                bool hasArrival = chunk.Has(ref Arrival);
                 bool useAvoidance = UseAvoidance && hasAvoidance;
                 var avoidance = hasAvoidance ? chunk.GetNativeArray(ref Avoidance) : default;
+                var arrival = hasArrival ? chunk.GetNativeArray(ref Arrival) : default;
                 var units = new ChunkEntityEnumerator(useEnabledMask, chunkEnabledMask, chunk.Count);
                 while (units.NextEntityIndex(out int index))
                 {
@@ -261,6 +281,9 @@ namespace ProjectLegion.Gameplay
                     float2 offset = destination - transform.Position.xz;
                     float distance = math.length(offset);
                     float step = math.max(0f, stats[index].MovementSpeed) * DeltaTime;
+                    if (RequireArrivalSafety && !useAvoidance && hasArrival && arrival[index].HasCommand &&
+                        distance <= step)
+                        continue;
                     if (distance > 0f && step > 0f)
                         Turn(ref transform, offset);
 
@@ -269,6 +292,18 @@ namespace ProjectLegion.Gameplay
                         transform.Position.xz = destination;
                         if (hasAvoidance)
                             avoidance[index] = default;
+                        if (hasArrival)
+                        {
+                            var state = arrival[index];
+                            if (state.HasCommand)
+                            {
+                                state.Status = state.AlternativeIndex == 0
+                                    ? ArrivalStatus.OriginalCompleted : ArrivalStatus.AlternativeCompleted;
+                                state.AlternativeIndex = 0;
+                                state.OccupiedSince = state.QueuedSince = state.NextRequest = state.LastProgressTime = 0;
+                                arrival[index] = state;
+                            }
+                        }
                         chunk.SetComponentEnabled(ref Targets, index, false);
                     }
                     else if (step > 0f)

@@ -15,6 +15,7 @@ namespace ProjectLegion.Gameplay
         [SerializeField] private LocalAvoidanceSettings _localAvoidance = LocalAvoidanceSettings.Default;
         [SerializeField] private OverlapResolutionSettings _overlapResolution = OverlapResolutionSettings.Default;
         [SerializeField] private StuckDetectionSettings _stuckDetection = StuckDetectionSettings.Default;
+        [SerializeField] private ArrivalManagementSettings _arrivalManagement = ArrivalManagementSettings.Default;
         private Camera _camera;
         private InputAction _move;
         private Vector2 _pointer;
@@ -66,6 +67,7 @@ namespace ProjectLegion.Gameplay
                 movement.ConfigureAvoidance(_localAvoidance);
                 world.GetExistingSystemManaged<UnitOverlapResolutionSystem>()?.Configure(_overlapResolution);
                 world.GetExistingSystemManaged<UnitStuckDetectionSystem>()?.Configure(_stuckDetection);
+                world.GetExistingSystemManaged<UnitArrivalSystem>()?.Configure(_arrivalManagement);
                 _configuredWorld = world;
                 _avoidanceSettingsDirty = false;
             }

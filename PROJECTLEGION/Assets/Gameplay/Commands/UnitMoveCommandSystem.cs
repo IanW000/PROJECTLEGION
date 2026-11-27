@@ -48,6 +48,7 @@ namespace ProjectLegion.Gameplay
             _hasCommand = false;
             var targets = GetComponentLookup<UnitMoveTarget>();
             var progress = GetComponentLookup<UnitMovementProgress>();
+            var arrival = GetComponentLookup<UnitArrivalState>();
             var cleared = new ClearUnitsJob { Units = _units }
                 .Schedule(JobHandle.CombineDependencies(Dependency, _bufferDependency));
             // Serial chunk gathering allows the native list to grow on demand without a main-thread count or sync.
@@ -63,6 +64,7 @@ namespace ProjectLegion.Gameplay
                 Units = _units,
                 Targets = targets,
                 Progress = progress,
+                Arrival = arrival,
                 Destination = _destination,
                 Spacing = _spacing
             }.Schedule(gathered);
@@ -110,6 +112,7 @@ namespace ProjectLegion.Gameplay
             public NativeList<FormationSlotAssignment.Unit> Units;
             public ComponentLookup<UnitMoveTarget> Targets;
             public ComponentLookup<UnitMovementProgress> Progress;
+            public ComponentLookup<UnitArrivalState> Arrival;
             public float2 Destination;
             public float Spacing;
 
@@ -123,8 +126,21 @@ namespace ProjectLegion.Gameplay
                 for (int i = 0; i < units.Length; i++)
                 {
                     Entity entity = units[i].Entity;
-                    Targets[entity] = new UnitMoveTarget { DestinationXZ = formation.GetSlot(i) };
+                    float2 slot = formation.GetSlot(i);
+                    Targets[entity] = new UnitMoveTarget { DestinationXZ = slot };
                     Targets.SetComponentEnabled(entity, true);
+                    if (Arrival.TryGetComponent(entity, out var arrival))
+                    {
+                        uint next = arrival.CommandVersion + 1;
+                        Arrival[entity] = new UnitArrivalState
+                        {
+                            OriginalSlot = slot,
+                            FormationForward = formation.Forward,
+                            Spacing = math.isfinite(Spacing) ? math.max(Spacing, RectangularFormation.MinimumSpacing) :
+                                RectangularFormation.DefaultSpacing,
+                            CommandVersion = next == 0 ? 1 : next
+                        };
+                    }
                     if (Progress.TryGetComponent(entity, out var progress))
                     {
                         progress.CommandVersion++;

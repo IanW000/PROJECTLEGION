@@ -20,6 +20,7 @@ namespace ProjectLegion.Gameplay
                 AddComponent<UnitAvoidanceVelocity>(entity);
                 AddComponent<UnitOverlapCorrection>(entity);
                 AddComponent<UnitMovementProgress>(entity);
+                AddComponent<UnitArrivalState>(entity);
                 SetComponentEnabled<UnitMoveTarget>(entity, false);
                 AddComponent(entity, new UnitId());
                 AddComponent(entity, new UnitStats { MovementSpeed = Mathf.Max(0f, authoring._movementSpeed) });
