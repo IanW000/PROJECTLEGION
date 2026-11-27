@@ -33,6 +33,43 @@ namespace ProjectLegion.Gameplay
         internal float2 Displacement;
     }
 
+    internal enum UnitMovementState : byte { Moving, Waiting, Retrying }
+    internal enum UnitBlockReason : byte { None, Congestion, ArrivalHold }
+
+    internal struct UnitMovementProgress : IComponentData
+    {
+        internal float2 WindowStart;
+        internal float2 PreviousPosition;
+        internal float StartDistance;
+        internal float BestDistance;
+        internal float WindowSeconds;
+        internal float Travel;
+        internal float BlockedSeconds;
+        internal float RetryDelay;
+        internal double NextProbe;
+        internal uint CommandVersion;
+        internal uint Epoch;
+        internal uint ProbeCount;
+        internal uint ProbeCandidates;
+        internal byte FailedWindows;
+        internal byte DetourWindows;
+        internal bool Initialized;
+        internal UnitMovementState State;
+        internal UnitBlockReason Reason;
+
+        internal void Reset(uint epoch)
+        {
+            uint version = CommandVersion;
+            uint probes = ProbeCount;
+            uint candidates = ProbeCandidates;
+            this = default;
+            CommandVersion = version;
+            ProbeCount = probes;
+            ProbeCandidates = candidates;
+            Epoch = epoch;
+        }
+    }
+
     internal struct UnitSpawnRequest : IComponentData
     {
         public Entity Prefab;

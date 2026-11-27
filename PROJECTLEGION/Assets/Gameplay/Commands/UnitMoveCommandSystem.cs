@@ -46,6 +46,8 @@ namespace ProjectLegion.Gameplay
                 return;
 
             _hasCommand = false;
+            var targets = GetComponentLookup<UnitMoveTarget>();
+            var progress = GetComponentLookup<UnitMovementProgress>();
             var cleared = new ClearUnitsJob { Units = _units }
                 .Schedule(JobHandle.CombineDependencies(Dependency, _bufferDependency));
             // Serial chunk gathering allows the native list to grow on demand without a main-thread count or sync.
@@ -59,7 +61,8 @@ namespace ProjectLegion.Gameplay
             _bufferDependency = new AssignSlotsJob
             {
                 Units = _units,
-                Targets = GetComponentLookup<UnitMoveTarget>(),
+                Targets = targets,
+                Progress = progress,
                 Destination = _destination,
                 Spacing = _spacing
             }.Schedule(gathered);
@@ -106,6 +109,7 @@ namespace ProjectLegion.Gameplay
         {
             public NativeList<FormationSlotAssignment.Unit> Units;
             public ComponentLookup<UnitMoveTarget> Targets;
+            public ComponentLookup<UnitMovementProgress> Progress;
             public float2 Destination;
             public float Spacing;
 
@@ -121,6 +125,12 @@ namespace ProjectLegion.Gameplay
                     Entity entity = units[i].Entity;
                     Targets[entity] = new UnitMoveTarget { DestinationXZ = formation.GetSlot(i) };
                     Targets.SetComponentEnabled(entity, true);
+                    if (Progress.TryGetComponent(entity, out var progress))
+                    {
+                        progress.CommandVersion++;
+                        progress.Reset(progress.Epoch);
+                        Progress[entity] = progress;
+                    }
                 }
             }
         }

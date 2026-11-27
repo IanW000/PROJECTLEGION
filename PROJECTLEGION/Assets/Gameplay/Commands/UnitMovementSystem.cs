@@ -41,12 +41,16 @@ namespace ProjectLegion.Gameplay
                 return;
 
             var grid = _avoidance.EnableLocalAvoidance ? World.GetExistingSystemManaged<UnitSpatialGridSystem>() : null;
+            var detector = World.GetExistingSystemManaged<UnitStuckDetectionSystem>();
+            bool respectWaiting = detector is { Monitoring: true };
+            uint epoch = respectWaiting ? detector.Epoch : 0;
+            var progress = GetComponentLookup<UnitMovementProgress>(true);
             bool calculateAvoidance = grid is { Enabled: true } && !_avoidingUnits.IsEmptyIgnoreFilter;
             CalculatedAvoidance = calculateAvoidance;
             if (calculateAvoidance)
             {
                 var snapshot = grid.GetSnapshot();
-                Dependency = new CalculateAvoidanceJob
+                var calculate = new CalculateAvoidanceJob
                 {
                     Grid = snapshot.Grid,
                     Entities = GetEntityTypeHandle(),
@@ -55,10 +59,14 @@ namespace ProjectLegion.Gameplay
                     Stats = GetComponentTypeHandle<UnitStats>(true),
                     TargetLookup = GetComponentLookup<UnitMoveTarget>(true),
                     StatsLookup = GetComponentLookup<UnitStats>(true),
+                    Progress = progress,
+                    RespectWaiting = respectWaiting,
+                    Epoch = epoch,
                     Results = GetComponentTypeHandle<UnitAvoidanceVelocity>(),
                     Settings = _avoidance,
                     DeltaTime = deltaTime
-                }.ScheduleParallel(_avoidingUnits, JobHandle.CombineDependencies(Dependency, snapshot.Build));
+                };
+                Dependency = calculate.ScheduleParallel(_avoidingUnits, JobHandle.CombineDependencies(Dependency, snapshot.Build));
                 snapshot.RegisterReader(Dependency);
             }
 
@@ -68,6 +76,10 @@ namespace ProjectLegion.Gameplay
                 Transforms = GetComponentTypeHandle<LocalTransform>(),
                 Stats = GetComponentTypeHandle<UnitStats>(true),
                 Avoidance = GetComponentTypeHandle<UnitAvoidanceVelocity>(),
+                Progress = progress,
+                Entities = GetEntityTypeHandle(),
+                RespectWaiting = respectWaiting,
+                Epoch = epoch,
                 UseAvoidance = calculateAvoidance,
                 DeltaTime = deltaTime
             }.ScheduleParallel(_movingUnits, Dependency);
@@ -85,6 +97,9 @@ namespace ProjectLegion.Gameplay
             [ReadOnly] public ComponentTypeHandle<UnitStats> Stats;
             [ReadOnly] public ComponentLookup<UnitMoveTarget> TargetLookup;
             [ReadOnly] public ComponentLookup<UnitStats> StatsLookup;
+            [ReadOnly] public ComponentLookup<UnitMovementProgress> Progress;
+            public bool RespectWaiting;
+            public uint Epoch;
             public ComponentTypeHandle<UnitAvoidanceVelocity> Results;
             public LocalAvoidanceSettings Settings;
             public float DeltaTime;
@@ -100,8 +115,11 @@ namespace ProjectLegion.Gameplay
                 var results = chunk.GetNativeArray(ref Results);
                 var units = new ChunkEntityEnumerator(useEnabledMask, chunkEnabledMask, chunk.Count);
                 while (units.NextEntityIndex(out int index))
-                    results[index] = Calculate(entities[index], transforms[index].Position.xz,
+                {
+                    Entity entity = entities[index];
+                    results[index] = IsWaiting(entity) ? default : Calculate(entity, transforms[index].Position.xz,
                         targets[index].DestinationXZ, stats[index].MovementSpeed);
+                }
             }
 
             private UnitAvoidanceVelocity Calculate(Entity entity, float2 position, float2 destination, float speed)
@@ -176,7 +194,7 @@ namespace ProjectLegion.Gameplay
 
             private float2 GetDesiredVelocity(SpatialGridEntry other)
             {
-                if (TargetLookup.TryGetComponent(other.Entity, out var target) &&
+                if (!IsWaiting(other.Entity) && TargetLookup.TryGetComponent(other.Entity, out var target) &&
                     TargetLookup.IsComponentEnabled(other.Entity) &&
                     StatsLookup.TryGetComponent(other.Entity, out var stats))
                 {
@@ -185,6 +203,9 @@ namespace ProjectLegion.Gameplay
                 }
                 return float2.zero;
             }
+
+            private bool IsWaiting(Entity entity) => RespectWaiting &&
+                Progress.TryGetComponent(entity, out var progress) && StuckProbe.IsWaiting(progress, Epoch);
         }
 
         [BurstCompile]
@@ -196,6 +217,10 @@ namespace ProjectLegion.Gameplay
             public ComponentTypeHandle<LocalTransform> Transforms;
             [ReadOnly] public ComponentTypeHandle<UnitStats> Stats;
             public ComponentTypeHandle<UnitAvoidanceVelocity> Avoidance;
+            [ReadOnly] public ComponentLookup<UnitMovementProgress> Progress;
+            [ReadOnly] public EntityTypeHandle Entities;
+            public bool RespectWaiting;
+            public uint Epoch;
             public bool UseAvoidance;
             public float DeltaTime;
 
@@ -206,12 +231,16 @@ namespace ProjectLegion.Gameplay
                 var targets = chunk.GetNativeArray(ref Targets);
                 var transforms = chunk.GetNativeArray(ref Transforms);
                 var stats = chunk.GetNativeArray(ref Stats);
+                var entities = chunk.GetNativeArray(Entities);
                 bool hasAvoidance = chunk.Has(ref Avoidance);
                 bool useAvoidance = UseAvoidance && hasAvoidance;
                 var avoidance = hasAvoidance ? chunk.GetNativeArray(ref Avoidance) : default;
                 var units = new ChunkEntityEnumerator(useEnabledMask, chunkEnabledMask, chunk.Count);
                 while (units.NextEntityIndex(out int index))
                 {
+                    if (RespectWaiting && Progress.TryGetComponent(entities[index], out var progress) &&
+                        StuckProbe.IsWaiting(progress, Epoch))
+                        continue;
                     LocalTransform transform = transforms[index];
                     var planned = useAvoidance ? avoidance[index] : default;
                     if (planned.Mode == AvoidanceMove.Hold)

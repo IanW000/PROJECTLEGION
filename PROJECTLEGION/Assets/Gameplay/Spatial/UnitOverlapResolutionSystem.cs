@@ -75,6 +75,8 @@ namespace ProjectLegion.Gameplay
                 _entries = new NativeParallelMultiHashMap<int2, SpatialGridEntry>(_capacity, Allocator.Persistent);
 
             var movement = World.GetExistingSystemManaged<UnitMovementSystem>();
+            var detector = World.GetExistingSystemManaged<UnitStuckDetectionSystem>();
+            bool respectWaiting = detector is { Monitoring: true };
             var preMovementGrid = World.GetExistingSystemManaged<UnitSpatialGridSystem>();
             float cellSize = preMovementGrid?.SnapshotCellSize ?? UnitSpatialGridSystem.DefaultCellSize;
             float radius = movement?.CollisionRadius ?? LocalAvoidanceSettings.Default.CollisionRadius;
@@ -83,6 +85,7 @@ namespace ProjectLegion.Gameplay
             var targets = GetComponentLookup<UnitMoveTarget>(true);
             var stats = GetComponentLookup<UnitStats>(true);
             var avoidance = GetComponentLookup<UnitAvoidanceVelocity>(true);
+            var progress = GetComponentLookup<UnitMovementProgress>(true);
             var results = GetComponentTypeHandle<UnitOverlapCorrection>();
             var build = SpatialGridBuild.Schedule(_units, entities, transforms, cellSize,
                 BuildMarker, ref _entries, ref _capacity, _readers, Dependency);
@@ -98,6 +101,9 @@ namespace ProjectLegion.Gameplay
                 Targets = targets,
                 Stats = stats,
                 Avoidance = avoidance,
+                Progress = progress,
+                RespectWaiting = respectWaiting,
+                Epoch = respectWaiting ? detector.Epoch : 0,
                 Results = results,
                 HonorHold = movement is { Enabled: true, CalculatedAvoidance: true },
                 Diameter = 2f * radius,
@@ -129,6 +135,9 @@ namespace ProjectLegion.Gameplay
             [ReadOnly] internal ComponentLookup<UnitMoveTarget> Targets;
             [ReadOnly] internal ComponentLookup<UnitStats> Stats;
             [ReadOnly] internal ComponentLookup<UnitAvoidanceVelocity> Avoidance;
+            [ReadOnly] internal ComponentLookup<UnitMovementProgress> Progress;
+            internal bool RespectWaiting;
+            internal uint Epoch;
             internal EntityQueryMask Correctable;
             internal ComponentTypeHandle<UnitOverlapCorrection> Results;
             internal bool HonorHold;
@@ -157,6 +166,8 @@ namespace ProjectLegion.Gameplay
             private bool CanMove(Entity entity)
             {
                 return Correctable.MatchesIgnoreFilter(entity) && Targets.IsComponentEnabled(entity) &&
+                    (!RespectWaiting || !Progress.TryGetComponent(entity, out var progress) ||
+                        !StuckProbe.IsWaiting(progress, Epoch)) &&
                     Stats.TryGetComponent(entity, out var stats) &&
                     math.isfinite(stats.MovementSpeed) && stats.MovementSpeed > 0f &&
                     (!HonorHold || !Avoidance.TryGetComponent(entity, out var plan) || plan.Mode != AvoidanceMove.Hold);
