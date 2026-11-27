@@ -116,6 +116,37 @@ collision diameter can keep steering and correcting around the entrance while th
 target remains active. Phase 7.6.3b will focus on congestion management and stuck
 detection, with route selection handled by pathfinding.
 
+### Phase 8.1 Navigation Grid Validation
+
+In [Navigation Playground](PROJECTLEGION/Assets/Gameplay/Scenes/NavigationPlayground.unity),
+manual testing at Sample Density 4 found that previously blocked connections on
+the land left of the fissure turned green when Agent Radius was reduced from
+0.35 to 0.20 and 0.10.
+
+In the checked-in scene, a batch rebuild at density 4 found that all three
+cardinal connections along the west strip stayed open and all four cardinal
+connections crossing the fissure stayed blocked at each radius. A separate
+fixture with a localized fissure alongside an edge reproduced the reported
+pattern: both endpoints stayed walkable at all three radii, while the edge
+was blocked at 0.35 and open at 0.20 and 0.10.
+
+Nodes and intermediate edge samples use the same standing checks. In addition
+to the center surface, four probes offset by Agent Radius check ground support
+and local height transitions. The radius also sets the capsule clearance
+against configured blocker layers. An edge requires two walkable endpoints
+and valid samples and height transitions between them. Diagonals also require
+the surrounding cardinal connections to prevent corner cutting. Two green
+nodes can therefore have a red edge if a footprint probe along the edge loses
+support. Changing Agent Radius can change both the walkable nodes and their
+connections, even with unchanged geometry and Sample Density.
+
+The sampling lattice has an XZ pitch of `Cell Size / (2 × Sample Density)`,
+or 0.125 units for Cell Size 1 at density 4. The center and footprint probes
+are discrete. Thin fissures or blockers can fall between sampled footprints,
+and a different radius can move a support probe into or out of a narrow void.
+Higher density improves sampling resolution but provides no continuous
+geometry guarantee.
+
 ### Performance Research
 
 - [x] MonoBehaviour movement baseline
