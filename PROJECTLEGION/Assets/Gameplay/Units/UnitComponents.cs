@@ -28,6 +28,11 @@ namespace ProjectLegion.Gameplay
         internal AvoidanceMove Mode;
     }
 
+    internal struct UnitOverlapCorrection : IComponentData
+    {
+        internal float2 Displacement;
+    }
+
     internal struct UnitSpawnRequest : IComponentData
     {
         public Entity Prefab;

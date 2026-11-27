@@ -17,6 +17,10 @@ namespace ProjectLegion.Gameplay
         private EntityQuery _movingUnits;
         private EntityQuery _avoidingUnits;
         private LocalAvoidanceSettings _avoidance = LocalAvoidanceSettings.Default;
+        internal float CollisionRadius => _avoidance.CollisionRadius;
+        internal bool CalculatedAvoidance { get; private set; }
+
+        protected override void OnStopRunning() => CalculatedAvoidance = false;
 
         internal void ConfigureAvoidance(LocalAvoidanceSettings settings) => _avoidance = settings.Validated();
 
@@ -31,12 +35,14 @@ namespace ProjectLegion.Gameplay
 
         protected override void OnUpdate()
         {
+            CalculatedAvoidance = false;
             float deltaTime = SystemAPI.Time.DeltaTime;
             if (!(deltaTime > 0f) || !math.isfinite(deltaTime))
                 return;
 
             var grid = _avoidance.EnableLocalAvoidance ? World.GetExistingSystemManaged<UnitSpatialGridSystem>() : null;
             bool calculateAvoidance = grid is { Enabled: true } && !_avoidingUnits.IsEmptyIgnoreFilter;
+            CalculatedAvoidance = calculateAvoidance;
             if (calculateAvoidance)
             {
                 var snapshot = grid.GetSnapshot();

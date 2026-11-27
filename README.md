@@ -111,6 +111,11 @@ PROJECTLEGION is currently in active development.
 - [ ] Large-scale pathfinding
 - [ ] Combat and attack commands
 
+Phase 7.6.3a known limitation: units commanded through a gap narrower than their
+collision diameter can keep steering and correcting around the entrance while the
+target remains active. Phase 7.6.3b will focus on congestion management and stuck
+detection, with route selection handled by pathfinding.
+
 ### Performance Research
 
 - [x] MonoBehaviour movement baseline

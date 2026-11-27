@@ -13,6 +13,7 @@ namespace ProjectLegion.Gameplay
         [SerializeField, Min(RectangularFormation.MinimumSpacing)]
         private float _formationSpacing = RectangularFormation.DefaultSpacing;
         [SerializeField] private LocalAvoidanceSettings _localAvoidance = LocalAvoidanceSettings.Default;
+        [SerializeField] private OverlapResolutionSettings _overlapResolution = OverlapResolutionSettings.Default;
         private Camera _camera;
         private InputAction _move;
         private Vector2 _pointer;
@@ -62,6 +63,7 @@ namespace ProjectLegion.Gameplay
                 world.GetExistingSystemManaged<UnitMovementSystem>() is { } movement)
             {
                 movement.ConfigureAvoidance(_localAvoidance);
+                world.GetExistingSystemManaged<UnitOverlapResolutionSystem>()?.Configure(_overlapResolution);
                 _configuredWorld = world;
                 _avoidanceSettingsDirty = false;
             }

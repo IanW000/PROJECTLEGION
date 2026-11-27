@@ -177,7 +177,7 @@ namespace ProjectLegion.Gameplay
         private static bool EntityComesBefore(Entity left, Entity right)
             => left.Index < right.Index || (left.Index == right.Index && left.Version < right.Version);
 
-        private static float2 CoincidentAxis(Entity entity, Entity other)
+        internal static float2 CoincidentAxis(Entity entity, Entity other)
         {
             bool first = EntityComesBefore(entity, other);
             var pair = first ? new int2(entity.Index, other.Index) : new int2(other.Index, entity.Index);
