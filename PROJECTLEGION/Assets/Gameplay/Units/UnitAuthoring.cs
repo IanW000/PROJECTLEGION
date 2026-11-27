@@ -17,6 +17,7 @@ namespace ProjectLegion.Gameplay
                 AddComponent<UnitSelected>(entity);
                 SetComponentEnabled<UnitSelected>(entity, false);
                 AddComponent<UnitMoveTarget>(entity);
+                AddComponent<UnitAvoidanceVelocity>(entity);
                 SetComponentEnabled<UnitMoveTarget>(entity, false);
                 AddComponent(entity, new UnitId());
                 AddComponent(entity, new UnitStats { MovementSpeed = Mathf.Max(0f, authoring._movementSpeed) });

@@ -22,6 +22,12 @@ namespace ProjectLegion.Gameplay
         public float MovementSpeed;
     }
 
+    internal struct UnitAvoidanceVelocity : IComponentData
+    {
+        internal float2 Velocity;
+        internal AvoidanceMove Mode;
+    }
+
     internal struct UnitSpawnRequest : IComponentData
     {
         public Entity Prefab;

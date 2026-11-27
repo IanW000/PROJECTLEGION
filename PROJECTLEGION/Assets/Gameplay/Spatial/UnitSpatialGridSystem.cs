@@ -5,6 +5,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
+using Unity.Profiling;
 using Unity.Transforms;
 
 namespace ProjectLegion.Gameplay
@@ -12,8 +13,7 @@ namespace ProjectLegion.Gameplay
     [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     [UpdateAfter(typeof(UnitSpawnSystem))]
-    [UpdateAfter(typeof(UnitMovementSystem))]
-    [UpdateBefore(typeof(TransformSystemGroup))]
+    [UpdateBefore(typeof(UnitMovementSystem))]
     internal partial class UnitSpatialGridSystem : SystemBase
     {
         // Match the current 0.9 formation spacing. The unit hull spans 0.44 by 0.54 on XZ.
@@ -117,6 +117,8 @@ namespace ProjectLegion.Gameplay
         [BurstCompile]
         private struct BuildSpatialGridJob : IJobChunk
         {
+            private static readonly ProfilerMarker Marker = new ProfilerMarker("RTS.SpatialGrid.Build");
+
             internal NativeParallelMultiHashMap<int2, SpatialGridEntry>.ParallelWriter Entries;
             [ReadOnly] internal EntityTypeHandle Entities;
             [ReadOnly] internal ComponentTypeHandle<LocalTransform> Transforms;
@@ -125,6 +127,7 @@ namespace ProjectLegion.Gameplay
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask,
                 in v128 chunkEnabledMask)
             {
+                using var scope = Marker.Auto();
                 var entities = chunk.GetNativeArray(Entities);
                 var transforms = chunk.GetNativeArray(ref Transforms);
                 var units = new ChunkEntityEnumerator(useEnabledMask, chunkEnabledMask, chunk.Count);

@@ -12,10 +12,15 @@ namespace ProjectLegion.Gameplay
         [SerializeField] private MeshFilter _ground;
         [SerializeField, Min(RectangularFormation.MinimumSpacing)]
         private float _formationSpacing = RectangularFormation.DefaultSpacing;
+        [SerializeField] private LocalAvoidanceSettings _localAvoidance = LocalAvoidanceSettings.Default;
         private Camera _camera;
         private InputAction _move;
         private Vector2 _pointer;
         private bool _pending;
+        private bool _avoidanceSettingsDirty = true;
+        private World _configuredWorld;
+
+        private void OnValidate() => _avoidanceSettingsDirty = true;
 
         private void Awake()
         {
@@ -52,11 +57,19 @@ namespace ProjectLegion.Gameplay
 
         private void LateUpdate()
         {
+            var world = World.DefaultGameObjectInjectionWorld;
+            if (world is { IsCreated: true } && (_avoidanceSettingsDirty || world != _configuredWorld) &&
+                world.GetExistingSystemManaged<UnitMovementSystem>() is { } movement)
+            {
+                movement.ConfigureAvoidance(_localAvoidance);
+                _configuredWorld = world;
+                _avoidanceSettingsDirty = false;
+            }
+
             if (!_pending)
                 return;
 
             _pending = false;
-            var world = World.DefaultGameObjectInjectionWorld;
             if (!Application.isFocused || world is not { IsCreated: true })
                 return;
 

@@ -74,7 +74,7 @@ namespace ProjectLegion.Gameplay.Tests
         }
 
         [Test]
-        public void SimulationGroupBuildsAfterMovementAndRefreshesOnSpawnAndDestruction()
+        public void SimulationGroupSnapshotsBeforeMovementAndRefreshesOnSpawnAndDestruction()
         {
             using var world = new World("Spatial update order test");
             var group = world.GetOrCreateSystemManaged<SimulationSystemGroup>();
@@ -100,9 +100,9 @@ namespace ProjectLegion.Gameplay.Tests
                 int gridIndex = FindSystemIndex(order, system.SystemHandle);
                 int transformsIndex = FindSystemIndex(order, transforms.SystemHandle);
                 Assert.That(commandsIndex, Is.LessThan(movementIndex));
-                Assert.That(movementIndex, Is.LessThan(gridIndex));
+                Assert.That(gridIndex, Is.LessThan(movementIndex));
                 Assert.That(spawnIndex, Is.LessThan(gridIndex));
-                Assert.That(gridIndex, Is.LessThan(transformsIndex));
+                Assert.That(movementIndex, Is.LessThan(transformsIndex));
             }
 
             world.SetTime(new TimeData(1, 1));
@@ -126,8 +126,9 @@ namespace ProjectLegion.Gameplay.Tests
 
             group.Update();
             SpatialGrid grid = CompleteSnapshot(system);
-            Assert.That(ReadNeighbors(grid, float2.zero, 0f, Entity.Null), Is.Empty);
-            Assert.That(ReadNeighbors(grid, new float2(2f, 0f), 0f, Entity.Null), Is.EquivalentTo(new[] { moving }));
+            Assert.That(ReadNeighbors(grid, float2.zero, 0f, Entity.Null), Is.EquivalentTo(new[] { moving }));
+            Assert.That(ReadNeighbors(grid, new float2(2f, 0f), 0f, Entity.Null), Is.Empty);
+            Assert.That(manager.GetComponentData<LocalTransform>(moving).Position.x, Is.EqualTo(2f));
             var spawned = ReadNeighbors(grid, new float2(-2f, 0f), 0f, Entity.Null);
             Assert.That(spawned.Count, Is.EqualTo(1));
             Assert.That(manager.IsComponentEnabled<UnitMoveTarget>(spawned[0]), Is.False);
