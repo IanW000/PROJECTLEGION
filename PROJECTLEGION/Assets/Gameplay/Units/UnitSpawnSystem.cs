@@ -5,21 +5,59 @@ using Unity.Transforms;
 
 namespace ProjectLegion.Gameplay
 {
-    [UpdateBefore(typeof(TransformSystemGroup))]
+    [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
     [WorldSystemFilter(WorldSystemFilterFlags.LocalSimulation)]
     public partial class UnitSpawnSystem : SystemBase
     {
         private EntityQuery _requests;
+        private EntityQuery _source;
+        private EntityQuery _owned;
         private ulong _lastUnitId;
+        private int _resetCount;
+        internal uint Generation { get; private set; }
+        internal bool ResetPending => _resetCount != 0;
+        internal bool CanReset => !_source.IsEmptyIgnoreFilter;
+
+        internal bool RequestReset(int count)
+        {
+            if ((count != 100 && count != 1000 && count != 5000 && count != 10000) || ResetPending)
+                return false;
+            _resetCount = count;
+            return true;
+        }
 
         protected override void OnCreate()
         {
             _requests = GetEntityQuery(ComponentType.ReadOnly<UnitSpawnRequest>());
-            RequireForUpdate(_requests);
+            _source = GetEntityQuery(ComponentType.ReadOnly<PrototypeSpawnSource>());
+            _owned = GetEntityQuery(ComponentType.ReadOnly<PrototypeUnit>());
         }
 
         protected override void OnUpdate()
         {
+            if (ResetPending && !_source.IsEmptyIgnoreFilter)
+            {
+                int count = _resetCount;
+                _resetCount = 0;
+                using var sources = _source.ToEntityArray(Allocator.Temp);
+                Entity spawner = sources[0];
+                var request = EntityManager.GetComponentData<PrototypeSpawnSource>(spawner).Request;
+                if (EntityManager.HasComponent<Prefab>(request.Prefab) && EntityManager.HasComponent<UnitTag>(request.Prefab))
+                {
+                    World.GetExistingSystemManaged<UnitMoveCommandSystem>()?.CancelPending();
+                    World.GetExistingSystemManaged<UnitSpatialGridSystem>()?.Invalidate();
+                    World.GetExistingSystemManaged<UnitOverlapResolutionSystem>()?.Invalidate();
+                    World.GetExistingSystemManaged<UnitArrivalSystem>()?.Invalidate();
+                    EntityManager.DestroyEntity(_owned);
+                    if (EntityManager.HasComponent<UnitSpawnRequest>(spawner))
+                        EntityManager.RemoveComponent<UnitSpawnRequest>(spawner);
+                    request.Count = count;
+                    Spawn(spawner, request);
+                    Generation++;
+                }
+            }
+            if (_requests.IsEmptyIgnoreFilter)
+                return;
             // Snapshot the requests because instantiation and removal change archetypes.
             using var spawners = _requests.ToEntityArray(Allocator.Temp);
             foreach (Entity spawner in spawners)
@@ -43,6 +81,8 @@ namespace ProjectLegion.Gameplay
             LocalTransform template = EntityManager.GetComponentData<LocalTransform>(request.Prefab);
             using var units = new NativeArray<Entity>(request.Count, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
             EntityManager.Instantiate(request.Prefab, units);
+            if (EntityManager.HasComponent<PrototypeSpawnSource>(spawner))
+                EntityManager.AddComponent(units, ComponentType.ReadWrite<PrototypeUnit>());
 
             // Match the owning scene section so Unity unloads the units with the spawner.
             if (EntityManager.HasComponent<SceneTag>(spawner))

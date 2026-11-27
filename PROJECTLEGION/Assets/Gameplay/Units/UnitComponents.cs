@@ -101,4 +101,11 @@ namespace ProjectLegion.Gameplay
         public float Spacing;
         public float3 Origin;
     }
+
+    internal struct PrototypeSpawnSource : IComponentData
+    {
+        internal UnitSpawnRequest Request;
+    }
+
+    internal struct PrototypeUnit : IComponentData { }
 }

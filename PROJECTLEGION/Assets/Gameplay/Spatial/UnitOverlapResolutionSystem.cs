@@ -54,6 +54,14 @@ namespace ProjectLegion.Gameplay
 
         internal void Configure(OverlapResolutionSettings settings) => _settings = settings.Validated();
 
+        internal void Invalidate()
+        {
+            _readers.Complete();
+            if (_entries.IsCreated)
+                _entries.Clear();
+            _readers = default;
+        }
+
         protected override void OnCreate()
         {
             _units = GetEntityQuery(ComponentType.ReadOnly<UnitTag>(), ComponentType.ReadOnly<LocalTransform>());

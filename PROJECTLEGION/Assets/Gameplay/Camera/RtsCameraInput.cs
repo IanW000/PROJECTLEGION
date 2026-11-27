@@ -52,18 +52,23 @@ namespace ProjectLegion.Gameplay
             accelerate = false;
             if (!isActiveAndEnabled || !Application.isFocused)
                 return;
+            if (PrototypeInputGate.ResetPending)
+                return;
 
-            move = _move.ReadValue<Vector2>();
-            yaw = _yaw.ReadValue<float>();
-            zoom = _zoom.ReadValue<float>();
+            if (!PrototypeInputGate.KeyboardBlocked)
+            {
+                move = _move.ReadValue<Vector2>();
+                yaw = _yaw.ReadValue<float>();
+                accelerate = _accelerate.IsPressed();
+            }
+            bool pointerBlocked = PrototypeInputGate.PointerBlocked(_pointerPosition.ReadValue<Vector2>());
+            zoom = pointerBlocked ? 0f : _zoom.ReadValue<float>();
             if (Application.platform == RuntimePlatform.WindowsPlayer || Application.platform == RuntimePlatform.WindowsEditor)
             {
                 if (InputSystem.settings.scrollDeltaBehavior == InputSettings.ScrollDeltaBehavior.KeepPlatformSpecificInputRange)
                     zoom /= 120f;
             }
-            accelerate = _accelerate.IsPressed();
-
-            if (_edgeScrolling && Mouse.current != null && Cursor.lockState != CursorLockMode.Locked)
+            if (!pointerBlocked && _edgeScrolling && Mouse.current != null && Cursor.lockState != CursorLockMode.Locked)
                 move = Vector2.ClampMagnitude(move + EdgeDirection(), 1f);
         }
 

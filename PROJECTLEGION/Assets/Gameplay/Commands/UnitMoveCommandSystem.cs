@@ -40,6 +40,8 @@ namespace ProjectLegion.Gameplay
             _hasCommand = true;
         }
 
+        internal void CancelPending() => _hasCommand = false;
+
         protected override void OnUpdate()
         {
             if (!_hasCommand)

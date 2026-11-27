@@ -45,7 +45,7 @@ namespace ProjectLegion.Gameplay
             select.performed += OnPressed;
             select.canceled += OnReleased;
             var clear = _actions.AddAction("Clear selection", InputActionType.Button, "<Keyboard>/escape");
-            clear.performed += _ => _clearRequested = true;
+            clear.performed += _ => _clearRequested = !PrototypeInputGate.KeyboardBlocked;
             if (_indicatorMaterial != null && _indicatorMaterial.enableInstancing && SystemInfo.supportsInstancing)
                 _indicatorMesh = CreateIndicatorMesh();
             else
@@ -80,7 +80,7 @@ namespace ProjectLegion.Gameplay
                 return;
 
             Vector2 position = mouse.position.ReadValue();
-            if (!_camera.pixelRect.Contains(position))
+            if (!_camera.pixelRect.Contains(position) || PrototypeInputGate.PointerBlocked(position))
                 return;
 
             _pressPosition = position;
@@ -125,7 +125,7 @@ namespace ProjectLegion.Gameplay
 
         private void ReadInput()
         {
-            if (!Application.isFocused || Cursor.lockState == CursorLockMode.Locked)
+            if (!Application.isFocused || PrototypeInputGate.ResetPending || Cursor.lockState == CursorLockMode.Locked)
             {
                 CancelGesture();
                 return;
@@ -150,6 +150,11 @@ namespace ProjectLegion.Gameplay
             }
 
             Vector2 position = _released ? _releasePosition : mouse.position.ReadValue();
+            if (PrototypeInputGate.PointerBlocked(position))
+            {
+                CancelGesture();
+                return;
+            }
             _pointerPosition = Vector2.Max(viewport.min, Vector2.Min(position, viewport.max));
             float threshold = Mathf.Max(1f, _dragThresholdPixels);
             _dragging |= (_pointerPosition - _pressPosition).sqrMagnitude >= threshold * threshold;
@@ -169,7 +174,7 @@ namespace ProjectLegion.Gameplay
             CancelGesture();
         }
 
-        private void CancelGesture()
+        internal void CancelGesture()
         {
             _pressed = false;
             _dragging = false;

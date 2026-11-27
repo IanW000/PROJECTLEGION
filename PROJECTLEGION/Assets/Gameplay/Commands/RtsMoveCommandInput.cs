@@ -23,6 +23,28 @@ namespace ProjectLegion.Gameplay
         private bool _avoidanceSettingsDirty = true;
         private World _configuredWorld;
 
+        internal void CancelPending() => _pending = false;
+
+        internal bool FeatureEnabled(int feature) => feature switch
+        {
+            0 => _localAvoidance.EnableLocalAvoidance,
+            1 => _overlapResolution.EnableOverlapResolution,
+            2 => _stuckDetection.EnableStuckDetection,
+            _ => _arrivalManagement.EnableArrivalManagement
+        };
+
+        internal void SetFeature(int feature, bool enabled)
+        {
+            switch (feature)
+            {
+                case 0: _localAvoidance.EnableLocalAvoidance = enabled; break;
+                case 1: _overlapResolution.EnableOverlapResolution = enabled; break;
+                case 2: _stuckDetection.EnableStuckDetection = enabled; break;
+                case 3: _arrivalManagement.EnableArrivalManagement = enabled; break;
+            }
+            _avoidanceSettingsDirty = true;
+        }
+
         private void OnValidate() => _avoidanceSettingsDirty = true;
 
         private void Awake()
@@ -54,7 +76,7 @@ namespace ProjectLegion.Gameplay
                 context.control?.device is Mouse mouse)
             {
                 _pointer = mouse.position.ReadValue();
-                _pending = _camera.pixelRect.Contains(_pointer);
+                _pending = _camera.pixelRect.Contains(_pointer) && !PrototypeInputGate.PointerBlocked(_pointer);
             }
         }
 
@@ -76,7 +98,7 @@ namespace ProjectLegion.Gameplay
                 return;
 
             _pending = false;
-            if (!Application.isFocused || world is not { IsCreated: true })
+            if (!Application.isFocused || PrototypeInputGate.PointerBlocked(_pointer) || world is not { IsCreated: true })
                 return;
 
             Ray ray = _camera.ScreenPointToRay(_pointer);

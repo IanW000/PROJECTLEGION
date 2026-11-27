@@ -77,6 +77,27 @@ namespace ProjectLegion.Gameplay
 
         internal bool Managing => Enabled && _settings.EnableArrivalManagement;
 
+        internal int ActiveClaimCount
+        {
+            get
+            {
+                _bufferUse.Complete();
+                return _claims.IsCreated ? _claims.Count() : 0;
+            }
+        }
+
+        internal void Invalidate()
+        {
+            _bufferUse.Complete();
+            if (_requests.IsCreated)
+            {
+                _requests.Clear();
+                _claims.Clear();
+                _metrics[0] = default;
+            }
+            _nextBatch = 0;
+        }
+
         internal struct BatchMetrics
         {
             internal int Queued, Served, Reserved, Conflicts;

@@ -66,6 +66,14 @@ namespace ProjectLegion.Gameplay
         internal Snapshot GetSnapshot() => new Snapshot(this);
         internal float SnapshotCellSize => _snapshotCellSize;
 
+        internal void Invalidate()
+        {
+            JobHandle.CombineDependencies(_build, _readers).Complete();
+            _entries.Clear();
+            _build = _readers = default;
+            _snapshotVersion++;
+        }
+
         protected override void OnCreate()
         {
             _units = GetEntityQuery(ComponentType.ReadOnly<UnitTag>(), ComponentType.ReadOnly<LocalTransform>());

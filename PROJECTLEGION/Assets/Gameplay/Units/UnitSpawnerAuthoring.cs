@@ -21,13 +21,16 @@ namespace ProjectLegion.Gameplay
                     return;
                 }
 
-                AddComponent(GetEntity(TransformUsageFlags.None), new UnitSpawnRequest
+                var request = new UnitSpawnRequest
                 {
                     Prefab = GetEntity(authoring._unitPrefab, TransformUsageFlags.Dynamic),
                     Count = Mathf.Max(0, authoring._unitCount),
                     Spacing = Mathf.Max(0.01f, authoring._spacing),
                     Origin = authoring._spawnOrigin
-                });
+                };
+                var entity = GetEntity(TransformUsageFlags.None);
+                AddComponent(entity, request);
+                AddComponent(entity, new PrototypeSpawnSource { Request = request });
             }
         }
     }
