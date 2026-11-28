@@ -96,6 +96,11 @@ namespace ProjectLegion.Gameplay.Tests
             using var builder = new NavigationFlowFieldBuilder(6);
             using var flow = RtsNavigationFlowFieldTests.Build(builder, grid, new int2(2, 0));
             RtsNavigationFlowFieldTests.AssertOptimal(grid, flow);
+            using var hierarchy = RtsNavigationHierarchyTests.Build(grid, new int2(2, 1), NavigationPortalMode.Exhaustive);
+            using var hierarchical = new NavigationHierarchyPathfinder(hierarchy, 6, RtsNavigationHierarchyTests.Budget);
+            var refined = RtsNavigationHierarchyTests.Run(hierarchical, grid, hierarchy, int2.zero, new int2(2, 0));
+            Assert.That(refined.Cost, Is.EqualTo(path.Cost).Within(1e-9));
+            RtsNavigationHierarchyTests.AssertLegal(grid, hierarchical, refined, 0, 2);
         }
 
         [TestCase(false)]
@@ -148,6 +153,11 @@ namespace ProjectLegion.Gameplay.Tests
             using var builder = new NavigationFlowFieldBuilder(4);
             using var flow = RtsNavigationFlowFieldTests.Build(builder, grid, new int2(1, 1));
             RtsNavigationFlowFieldTests.AssertOptimal(grid, flow);
+            using var hierarchy = RtsNavigationHierarchyTests.Build(grid, new int2(1), NavigationPortalMode.Exhaustive);
+            using var hierarchical = new NavigationHierarchyPathfinder(hierarchy, 4, RtsNavigationHierarchyTests.Budget);
+            var refined = RtsNavigationHierarchyTests.Run(hierarchical, grid, hierarchy, int2.zero, new int2(1, 1));
+            Assert.That(refined.PathCount, Is.EqualTo(3));
+            RtsNavigationHierarchyTests.AssertLegal(grid, hierarchical, refined, 0, 3);
         }
 
         [Test]
@@ -180,6 +190,10 @@ namespace ProjectLegion.Gameplay.Tests
             using var flow = RtsNavigationFlowFieldTests.Build(builder, small, new int2(1, 0));
             RtsNavigationFlowFieldTests.AssertOptimal(small, flow);
             Assert.That(builder.Begin(wide, new int2(1, 0), true), Is.EqualTo(NavigationFlowBuildStatus.InvalidGoal));
+            using var hierarchy = RtsNavigationHierarchyTests.Build(small, new int2(1), NavigationPortalMode.Representative);
+            using var hierarchical = new NavigationHierarchyPathfinder(hierarchy, 2, RtsNavigationHierarchyTests.Budget);
+            var refined = RtsNavigationHierarchyTests.Run(hierarchical, small, hierarchy, int2.zero, new int2(1, 0));
+            Assert.That(refined.PathCount, Is.EqualTo(2));
         }
 
         [TestCase(0.6f, false)]

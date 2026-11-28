@@ -402,6 +402,107 @@ The interactive Playground draw callback, with all four layers enabled and
 42 reachable nodes, measured 0.0826 ms median and 0.0997 ms P95 across 89 CPU
 samples. This scope excludes the rest of the Scene View and GPU rendering.
 
+### Phase 8.5 Hierarchical Pathfinding
+
+Open Navigation Playground, enable Scene View Gizmos, select the navigation
+grid object and build the low-level grid. On the **Navigation Hierarchy
+Debugger**, choose a rectangular cluster size and either **Exhaustive** or
+**Representative**, then select **Build Hierarchical Graph**. Move **Hierarchy
+Start** and **Hierarchy Goal**, and select **Run Hierarchical Search**. The
+abstract route is orange, the refined route is cyan, and the optional A*
+comparison is magenta. Layers and drawing budgets are independent.
+
+The topology pass scans original directed edges and clips partial boundary
+clusters. Exhaustive mode keeps all cross-cluster edges. Representative mode
+uses iterative Kosaraju within each cluster and retains the cheapest legal
+forward edge for each ordered pair of strongly connected components, with
+node IDs breaking ties. Any original crossing can be substituted by a legal
+path within the source component, the retained crossing, and a legal path
+within the target component. This preserves reachability and can increase cost.
+Diagonal crossings use the same scan, including edges between corner clusters.
+
+Fixed workspace lanes process independent clusters. Single-source Dijkstra
+produces a temporary directed portal distance matrix, then reachable edges
+are packed into CSR arrays. Persistent data comprises 12 bytes per cluster,
+4 bytes per portal node index, 4 bytes per CSR offset, and 16 bytes per edge.
+The matrix is quadratic in the portal count within a cluster. Budget checks
+precede intermediate allocations and graph publication. The workspace and
+retirement bytes also take part in the Playground navigation budget.
+
+Each query owns temporary start and destination connections, indexed heaps,
+restricted search state, and its complete-path buffer. A same-cluster direct
+route competes with routes that leave and return. Refinement reuses legal
+low-level edges and verifies each stitched step and the weighted total before
+publication. A capacity failure returns zero published nodes. The owner may
+resize the output when idle under a peak budget check. Results remain valid
+until reuse, resize, disposal or snapshot invalidation. Representative
+unreachable results can trigger explicit full-grid A* fallback. Successful
+hierarchical queries use the optimal A* comparison only when the optional
+debug control is enabled or a test requests it.
+
+Scheduling and Reader registration happen on the owner thread. Async builds
+register low-level readers, and async queries register readers on both graphs.
+Publication rechecks the snapshot. The owners poll completion during normal
+operation and may wait when disposing the final owner at shutdown.
+
+Windows x64 Editor PlayMode measurements used Unity 6000.0.66f2 and an
+i7-12700K, with four bounded preprocessing lanes. Synthetic grid creation
+and the job warm-up are outside the build times below. Cells report
+Exhaustive / Representative preprocessing wall time in ms.
+
+| Open grid | 8² clusters | 16² clusters | 32² clusters | 64² clusters |
+| --- | ---: | ---: | ---: | ---: |
+| 64² | 5.535 / 1.858 | 9.162 / 1.765 | 10.740 / 1.587 | 1.066 / 1.097 |
+| 128² | 22.385 / 7.609 | 38.965 / 7.529 | 70.918 / 6.310 | 88.238 / 5.884 |
+| 256² | 93.012 / 30.324 | 177.708 / 27.257 | 313.793 / 26.214 | 589.987 / 25.099 |
+| 512² | 375.278 / 118.971 | 703.355 / 107.058 | 1,352.278 / 106.605 | 2,562.546 / 102.096 |
+| 1,024² | — | — | — / 431.709 | — / 416.449 |
+
+For open 512² with 16² clusters, both modes report 1,024 clusters and 7,812
+directed entrances. The paired values are Exhaustive / Representative.
+
+| Measurement | Exhaustive | Representative |
+| --- | ---: | ---: |
+| Retained crossings | 186,372 | 7,812 |
+| Unique portals | 59,644 | 3,968 |
+| Abstract edges | 3,624,492 | 19,462 |
+| Preprocessing worker CPU | 2,417.034 ms | 207.252 ms |
+| Persistent graph | 58,481,316 B | 355,428 B |
+| Temporary peak | 33,638,840 B | 7,720,024 B |
+| Build peak including low-level grid | 94,704,668 B | 10,353,752 B |
+| Complete-path query workspace | 3,922,840 B | 1,249,496 B |
+| Preprocessing expansions across a lane, min–max | 3,759,616–3,874,816 | 241,920–258,048 |
+
+The complete-path timing includes consuming the path nodes. For the same
+512² configuration, the near/medium/far medians were 0.084/1.246/10.631 ms
+for Exhaustive and 0.084/0.153/0.394 ms for Representative. The corresponding
+A* medians were 0.002/1.526/14.101 ms and 0.002/1.500/14.315 ms. Far-query
+mean Connect / High / Refine / Stitch / Validate times were
+0.08703 / 10.26182 / 0.31919 / 0.00527 / 0.01048 ms for Exhaustive and
+0.08618 / 0.16736 / 0.10098 / 0.00393 / 0.00598 ms for Representative.
+
+The 256² open grid with 16² clusters also ran full far-query batches.
+Including one preprocessing run, the first measured crossover against A*
+was between 64 and 256 requests for Exhaustive and between 4 and 16 for
+Representative. Short requests in the sampled 512² configuration were slower
+in both hierarchy modes even after preprocessing. The full matrix logs
+estimate the amortization count from build time and steady medians when
+the hierarchy is faster.
+
+Representative paths on the 128² weighted far workload had median / P95 /
+max suboptimality of 10.1022% / 13.5461% / 13.5461%. The maximum absolute
+extra cost was 40.935029. The long-seam fixture raised a cost-1 open path to
+45 and a cost-3 weighted path to 129.526912. Those detours demonstrate the
+quality cost of selecting just one crossing per component pair. On the
+separate disconnected workload, all 12 representative far queries invoked
+fallback and remained unreachable. The mean fallback was 1.211 ms, measured
+separately from ordinary hierarchy queries. Across 756 representative samples
+in the matrix, these were the only fallback attempts.
+The separate Playground draw sample included the exhaustive graph and all
+three path overlays. Over 89 CPU samples, the draw callback measured
+0.1705 ms median and 0.2374 ms P95. This capture excludes the rest of the
+Scene View and GPU rendering.
+
 ### Performance Research
 
 - [x] MonoBehaviour movement baseline

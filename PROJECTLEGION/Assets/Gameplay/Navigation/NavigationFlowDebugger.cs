@@ -55,7 +55,7 @@ namespace ProjectLegion.Gameplay
             int nodes = checked(grid.Size.x * grid.Size.y);
             long pending = (long)nodes * NavigationFlowField.BytesPerNode;
             long workspace = NavigationFlowFieldBuilder.WorkspaceBytes(nodes);
-            long peak = _authoring.LiveGridBytes + _authoring.BatchPayloadBytes + workspace + pending +
+            long peak = _authoring.LiveGridBytes + _authoring.BatchPayloadBytes + _authoring.HierarchyPayloadBytes + workspace + pending +
                 (_field?.PayloadBytes ?? 0) + _retiredBytes;
             if (peak > _authoring.MemoryBudgetBytes)
             {
@@ -159,7 +159,7 @@ namespace ProjectLegion.Gameplay
             long payload = (_builder?.PayloadBytes ?? 0) + (_field?.PayloadBytes ?? 0) + _retiredBytes + _pendingBytes;
             _authoring.FlowPayloadBytes = payload;
             if (payload != 0)
-                _authoring.ObservePayload(_authoring.LiveGridBytes + _authoring.BatchPayloadBytes + payload);
+                _authoring.ObservePayload(_authoring.LiveGridBytes + _authoring.BatchPayloadBytes + _authoring.HierarchyPayloadBytes + payload);
         }
 
         private static double Elapsed(long start) => (Stopwatch.GetTimestamp() - start) * 1000d / Stopwatch.Frequency;

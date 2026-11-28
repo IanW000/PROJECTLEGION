@@ -57,7 +57,8 @@ namespace ProjectLegion.Gameplay
             long fixedBytes = NavigationPathScheduler.FixedPayloadBytes(count, queue, ResultSlots, blocks);
             _batchGrid = _authoring.Grid;
             long workspaceBudget = (long)Mathf.Max(1, _workspaceMiB) * 1024 * 1024;
-            long available = _authoring.MemoryBudgetBytes - _authoring.LiveGridBytes - _authoring.FlowPayloadBytes - fixedBytes;
+            long available = _authoring.MemoryBudgetBytes - _authoring.LiveGridBytes - _authoring.FlowPayloadBytes -
+                _authoring.HierarchyPayloadBytes - fixedBytes;
             long perWorkspace = NavigationPathScheduler.WorkspaceSize(_batchGrid.Size.x * _batchGrid.Size.y);
             if (Math.Min(workspaceBudget, available) < perWorkspace)
             {
@@ -151,14 +152,14 @@ namespace ProjectLegion.Gameplay
 
             long fixedBytes = _scheduler.PayloadBytes - _scheduler.WorkspaceBytes;
             long gridBytes = _budgetOwner != null ? _budgetOwner.LiveGridBytes : 0;
-            long flowBytes = _budgetOwner != null ? _budgetOwner.FlowPayloadBytes : 0;
-            long available = _budgetOwner != null ? _budgetOwner.MemoryBudgetBytes - gridBytes - flowBytes - fixedBytes : 0;
+            long sharedBytes = _budgetOwner != null ? _budgetOwner.FlowPayloadBytes + _budgetOwner.HierarchyPayloadBytes : 0;
+            long available = _budgetOwner != null ? _budgetOwner.MemoryBudgetBytes - gridBytes - sharedBytes - fixedBytes : 0;
             _scheduler.Tick(Mathf.Max(1, _dispatchBudget), Mathf.Max(1, _collectionBudget),
                 Mathf.Max(1, _copyNodeBudget), available);
             if (_budgetOwner != null)
             {
                 _budgetOwner.BatchPayloadBytes = _scheduler.PayloadBytes;
-                _budgetOwner.ObservePayload(gridBytes + flowBytes + _scheduler.PayloadBytes);
+                _budgetOwner.ObservePayload(gridBytes + sharedBytes + _scheduler.PayloadBytes);
             }
 
             _dispatchSum += _scheduler.SchedulingTicks;

@@ -37,6 +37,7 @@ namespace ProjectLegion.Gameplay
         internal NavigationGrid Grid => _grid;
         internal long BatchPayloadBytes { get; set; }
         internal long FlowPayloadBytes { get; set; }
+        internal long HierarchyPayloadBytes { get; set; }
         internal long MemoryBudgetBytes => (long)Mathf.Max(1, _navigationMemoryMiB) * 1024 * 1024;
         internal long PeakPayloadBytes { get; private set; }
         internal long LiveGridBytes
@@ -59,7 +60,7 @@ namespace ProjectLegion.Gameplay
                 Debug.LogWarning("Grid rebuild deferred. Retry after old grid readers finish.", this);
                 return;
             }
-            long peak = LiveGridBytes + BatchPayloadBytes + FlowPayloadBytes +
+            long peak = LiveGridBytes + BatchPayloadBytes + FlowPayloadBytes + HierarchyPayloadBytes +
                 NavigationGridBuilder.EstimateBuildPayload(physics, transform.position, _settings);
             if (peak > MemoryBudgetBytes)
             {
