@@ -503,6 +503,106 @@ three path overlays. Over 89 CPU samples, the draw callback measured
 0.1705 ms median and 0.2374 ms P95. This capture excludes the rest of the
 Scene View and GPU rendering.
 
+### Phase 8.6 Multi-layer Navigation
+
+Open `Assets/Gameplay/Scenes/NavigationMultiLayerPlayground.unity`. Select
+**Multi-layer Navigation - Build from Inspector**, enable Scene View Gizmos,
+and choose **Build Multi-layer Snapshot**, then **Run Ground and Bridge
+Paths**. The green route stays at ground level beneath the bridge. The cyan
+route climbs the ramp and crosses the elevated deck. Inspect a node by moving
+the **Inspect Bridge Node** marker and selecting **Inspect Node**. Orange
+arrows show special traversal direction. Set Layer to a nonnegative index
+to filter the visualization by the node's local column layer.
+
+Column offsets locate sparse, height-ordered node ranges. Outgoing CSR
+indexes sorted directed edges, and incoming CSR stores the
+original forward EdgeId. In the Windows x64 layout, this is **4 B per
+column, 28 B per node and 36 B per directed edge**, plus 12 B for terminal
+offsets. The node cost includes both edge offsets. An edge includes its
+stable authoring key as well as its optional logical owner. Dense NodeId and
+EdgeId values belong to one snapshot generation. Stable authoring keys
+control ordering and ownership; rebuilt snapshots issue new handles.
+The compact legacy grid still uses 10 B per XZ cell.
+
+Attach a Layer Navigation Surface with a unique positive key to each
+participating collider. Sampling sorts candidate upward-facing hits and
+checks body clearance, foot support, slope, and step height independently
+per surface. Ordinary edges require continuous compatible samples.
+Diagonal steps also require both legal orthogonal routes to the exact
+destination node. An ambiguous near-height hit, saturated hit buffer or
+exceeded layer limit rejects the candidate snapshot. Ambiguous support
+during continuity checking can reject an otherwise plausible route.
+With thick or complex meshes, especially a collider with several vertical
+surfaces in the same ray, extraction can miss internal layers. Use separate
+colliders for independently traversable stacked surfaces. Finite probes
+can miss thin obstacles and small holes.
+
+Special links identify endpoints using XZ and height, record a connection
+type and positive forward cost, and can explicitly add a separately priced
+reverse edge. They describe topology; a future movement consumer will
+decide how to execute the connection type. If any edge is cheaper than the
+3D distance between its endpoints, all A* queries on that snapshot use
+a zero heuristic. Results include node and edge handles. The Phase 8.3
+queue reserves blocks for the entire combined node and edge stream before
+publication. Multi-layer Flow Field reads incoming edges and returns the
+winning original EdgeId. HPA* explicitly rejects layered snapshots with
+UnsupportedTopology.
+
+Snapshot and Flow Field readers register on the owner thread immediately
+after scheduling. A retired snapshot rejects fresh handles and queries.
+In-flight jobs may finish before their dependent frees run. A consumer
+must check the generation before publishing derived data. Workspaces own
+their result scratch. Native overlap accounting includes both generations.
+The authoring budget also includes estimated staging payload, excluding
+engine internals and managed object overhead. Collider sampling and CSR
+packing run on the main thread, while asynchronous A* and Flow Field
+searches run as Burst jobs.
+
+The Windows x64 Unity 6000.0.66f2 Editor PlayMode matrix used an i7-12700K.
+Density means one floor, an upper floor on half the map, or two floors on
+every column. Synthetic construction includes generating the topology and
+packing both CSR indexes. A* timings are warmed medians for complete paths.
+The parallel batch uses four workspaces for 16 requests and copies both
+node and edge handles. Times are in milliseconds.
+
+| Grid | Density | Nodes / directed edges | Build | A* | Parallel batch | Flow build |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 64² | One | 4,096 / 16,128 | 8.518 | 0.338 | 1.537 | 0.345 |
+| 64² | Half upper | 6,144 / 24,384 | 5.326 | 0.557 | 2.380 | 0.545 |
+| 64² | Two | 8,192 / 32,768 | 6.627 | 0.785 | 3.574 | 0.744 |
+| 128² | One | 16,384 / 65,024 | 13.274 | 1.556 | 6.461 | 1.639 |
+| 128² | Half upper | 24,576 / 98,432 | 28.740 | 2.483 | 11.063 | 2.489 |
+| 128² | Two | 32,768 / 132,096 | 34.269 | 3.539 | 14.578 | 3.693 |
+| 256² | One | 65,536 / 261,120 | 66.077 | 8.055 | 28.004 | 8.370 |
+| 256² | Half upper | 98,304 / 395,520 | 103.165 | 13.924 | 49.668 | 14.606 |
+| 256² | Two | 131,072 / 530,432 | 137.524 | 21.424 | 70.751 | 18.484 |
+
+The compact single-layer path medians for the same cardinal routes were
+0.426, 1.869 and 8.142 ms at 64², 128² and 256² respectively. The compact
+entry point still reads the 10 B/cell layout. The one-floor CSR comparison
+exercises the new representation and copies EdgeIds as well as nodes.
+
+The largest two-floor snapshot used 23,027,724 B native, or 46,055,448 B
+with two identical snapshots resident. Its path workspace used 6,291,512 B
+and its completed field used 1,572,864 B. A* worker time for the parallel
+batch totalled 281.579 ms, with 4.598 ms of dispatch and 37.133 ms of
+collection under tight polling. Flow Field worker time was 18.439 ms,
+main-thread submission took 0.017 ms, and 10,000 owner-thread lookups took
+1.375 ms. Synchronized query tests reported no GC.Alloc marker activity
+in the eight rows where a known allocation control was detected. The
+256² one-floor control was inconclusive. This measures allocation activity
+and does not give byte counts.
+
+The saved Playground produced 125 nodes and 777 directed edges using
+4,971 rays and 1,003 capsule queries. Its warm rebuild took 7.725 ms,
+including 0.722 ms of surface extraction, 5.381 ms of edge construction,
+and 0.153 ms of CSR packing. The native payload was 32,100 B and the
+estimated overlap peak including staging and both snapshots was 135,524 B.
+The verified ground path has 8 nodes at ground height and cost 7.000.
+The bridge path has 11 nodes, follows the ramp and costs 10.420.
+The separate Scene View callback measured 0.2173 ms median and 0.3584 ms
+P95 over 89 CPU samples, excluding the rest of the editor and GPU rendering.
+
 ### Performance Research
 
 - [x] MonoBehaviour movement baseline

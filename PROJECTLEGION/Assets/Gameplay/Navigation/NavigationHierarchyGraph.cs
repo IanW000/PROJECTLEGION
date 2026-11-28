@@ -6,7 +6,8 @@ using Unity.Mathematics;
 namespace ProjectLegion.Gameplay
 {
     internal enum NavigationPortalMode { Exhaustive, Representative }
-    internal enum NavigationHierarchyBuildStatus { Success, InvalidGrid, InvalidSettings, BudgetExceeded, Invalidated }
+    internal enum NavigationHierarchyBuildStatus { Success, InvalidGrid, InvalidSettings, BudgetExceeded, Invalidated,
+        UnsupportedTopology }
     internal enum NavigationHierarchyStatus { Success, InvalidStart, InvalidDestination, Unreachable,
         Invalidated, OutputCapacity, InvalidRefinement }
 

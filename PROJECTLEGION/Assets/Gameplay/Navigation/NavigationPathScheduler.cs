@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Threading;
 using Unity.Collections;
@@ -62,6 +62,7 @@ namespace ProjectLegion.Gameplay
         private sealed class Worker
         {
             internal NavigationPathfinder Search;
+            internal LayeredSearchWorkspace Layered;
             internal JobHandle Job;
             internal int Slot = -1, Chain = -1, Block, Copied;
             internal bool Busy, Finished;
@@ -86,6 +87,8 @@ namespace ProjectLegion.Gameplay
         private Worker _reservationWaiter;
         private long _lastId, _generation;
         private NavigationGrid _grid;
+        private LayeredNavigationSnapshot _layered;
+        private bool _layeredWorkers;
         private bool _disposed;
         private int _workspaceNodes;
 
@@ -96,7 +99,7 @@ namespace ProjectLegion.Gameplay
         internal int Failed { get; private set; }
         internal int Cancelled { get; private set; }
         internal int ResultBlocksUsed => _results.BlockCount - _results.FreeBlocks;
-        internal long WorkspaceBytes => (long)Concurrency * WorkspaceSize(_workspaceNodes);
+        internal long WorkspaceBytes => (long)Concurrency * (_layeredWorkers ? LayeredSearchWorkspace.Budget(_workspaceNodes) : WorkspaceSize(_workspaceNodes));
         internal long PayloadBytes => WorkspaceBytes + _results.PayloadBytes +
             (long)_requests.Length * UnsafeUtility.SizeOf<Request>();
         internal long PeakPayloadBytes { get; private set; }
@@ -159,16 +162,51 @@ namespace ProjectLegion.Gameplay
                 throw new ObjectDisposedException(nameof(NavigationPathScheduler));
             if (grid != null && !grid.IsCreated)
                 grid = null;
-            if (ReferenceEquals(_grid, grid))
+            if (_layered == null && ReferenceEquals(_grid, grid))
                 return;
 
             long generation = checked(_generation + 1);
             CancelAll();
             _grid = grid;
+            _layered = null;
             _generation = generation;
         }
 
+        internal void SetLayeredSnapshot(LayeredNavigationSnapshot snapshot)
+        {
+            if (_disposed) throw new ObjectDisposedException(nameof(NavigationPathScheduler));
+            if (snapshot != null && !snapshot.IsCreated) snapshot = null;
+            if (_grid == null && ReferenceEquals(_layered, snapshot)) return;
+            long generation = checked(_generation + 1);
+            CancelAll();
+            _grid = null;
+            _layered = snapshot;
+            _generation = generation;
+        }
+
+        internal NavigationSubmit SubmitLayered(LayerNodeHandle start, LayerNodeHandle goal,
+            out NavigationRequestToken token, int tag = 0)
+        {
+            token = default;
+            if (_layered == null || !_layered.Matches(start) || !_layered.Matches(goal)) return NavigationSubmit.Stale;
+            return SubmitCore(new int2(start.Id, 0), new int2(goal.Id, 0), out token, tag);
+        }
+
+        internal NavigationSubmit ReplaceLayered(NavigationRequestToken token, LayerNodeHandle start,
+            LayerNodeHandle goal, out NavigationRequestToken replacement, int tag = 0)
+        {
+            replacement = default;
+            if (_layered == null || !_layered.Matches(start) || !_layered.Matches(goal)) return NavigationSubmit.Stale;
+            return ReplaceCore(token, new int2(start.Id, 0), new int2(goal.Id, 0), out replacement, tag);
+        }
+
         internal NavigationSubmit Submit(int2 start, int2 goal, out NavigationRequestToken token, int tag = 0)
+        {
+            token = default;
+            return _layered == null ? SubmitCore(start, goal, out token, tag) : NavigationSubmit.Stale;
+        }
+
+        private NavigationSubmit SubmitCore(int2 start, int2 goal, out NavigationRequestToken token, int tag)
         {
             token = default;
             var availability = Availability();
@@ -188,6 +226,13 @@ namespace ProjectLegion.Gameplay
 
         internal NavigationSubmit Replace(NavigationRequestToken token, int2 start, int2 goal,
             out NavigationRequestToken replacement, int tag = 0)
+        {
+            replacement = default;
+            return _layered == null ? ReplaceCore(token, start, goal, out replacement, tag) : NavigationSubmit.Stale;
+        }
+
+        private NavigationSubmit ReplaceCore(NavigationRequestToken token, int2 start, int2 goal,
+            out NavigationRequestToken replacement, int tag)
         {
             replacement = default;
             if (!Matches(token, out var request))
@@ -254,7 +299,7 @@ namespace ProjectLegion.Gameplay
 
         internal bool CopyPath(NavigationResultHandle handle, NativeArray<int> destination)
         {
-            if (!Matches(handle.Request, out var request) || request.State != State.Delivered ||
+            if (_layered != null || !Matches(handle.Request, out var request) || request.State != State.Delivered ||
                 request.Chain < 0 || destination.Length < request.Result.PathCount)
                 return false;
 
@@ -265,12 +310,31 @@ namespace ProjectLegion.Gameplay
             return true;
         }
 
+        internal bool CopyLayeredPath(NavigationResultHandle handle, NativeArray<LayerNodeHandle> nodes,
+            NativeArray<LayerEdgeHandle> edges)
+        {
+            if (_layered == null || !Matches(handle.Request, out var request) || request.State != State.Delivered ||
+                request.Chain < 0 || nodes.Length < request.Result.PathCount || edges.Length < request.Result.PathCount - 1)
+                return false;
+            long generation = _layered.Generation;
+            int count = request.Result.PathCount;
+            int cursor = 0;
+            for (int block = request.Chain; block >= 0; block = _results.Next(block))
+            for (int offset = 0; offset < NavigationPathResultPool.BlockSize && cursor < 2L * count - 1; offset++, cursor++)
+            {
+                int value = _results.Read(block, offset);
+                if (cursor < count) nodes[cursor] = new LayerNodeHandle(generation, value);
+                else edges[cursor - count] = new LayerEdgeHandle(generation, value);
+            }
+            return true;
+        }
+
         internal bool IsCurrent(NavigationResultHandle handle) =>
             Matches(handle.Request, out var request) && request.State == State.Delivered;
 
         internal int CopyPathPrefix(NavigationResultHandle handle, int[] destination)
         {
-            if (!Matches(handle.Request, out var request) || request.State != State.Delivered ||
+            if (_layered != null || !Matches(handle.Request, out var request) || request.State != State.Delivered ||
                 request.Chain < 0)
                 return 0;
 
@@ -295,7 +359,7 @@ namespace ProjectLegion.Gameplay
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(NavigationPathScheduler));
-            if (_grid != null && !_grid.IsCreated)
+            if ((_grid != null && !_grid.IsCreated) || (_layered != null && !_layered.IsCreated))
                 SetGrid(null);
 
             long begin = Stopwatch.GetTimestamp();
@@ -306,14 +370,15 @@ namespace ProjectLegion.Gameplay
             PrepareWorkspaces(availableWorkspaceBytes);
             int scheduled = 0;
             for (int i = 0; i < Concurrency && _queue.Head >= 0 && scheduled < dispatchBudget &&
-                _reservationWaiter == null && _workspaceNodes == GridNodes; i++)
+                _reservationWaiter == null && _workspaceNodes == GridNodes && _layeredWorkers == (_layered != null); i++)
             {
                 var worker = _workers[i];
                 if (worker.Busy)
                     continue;
                 int slot = _queue.Head;
                 var request = _requests[slot];
-                worker.Job = worker.Search.Schedule(_grid, request.Start, request.Goal);
+                worker.Job = _layered != null ? worker.Layered.Schedule(_layered, request.Start.x, request.Goal.x)
+                    : worker.Search.Schedule(_grid, request.Start, request.Goal);
                 Remove(ref _queue, request);
                 Queued--;
                 worker.Busy = true;
@@ -333,14 +398,16 @@ namespace ProjectLegion.Gameplay
             SchedulingTicks = Stopwatch.GetTimestamp() - begin;
         }
 
-        private bool HasGrid => !_disposed && _grid != null && _grid.IsCreated;
-        private int GridNodes => _grid.Size.x * _grid.Size.y;
+        private bool HasGrid => !_disposed && (_grid?.IsCreated == true || _layered?.IsCreated == true);
+        private int GridNodes => _layered?.NodeCount ?? (_grid.Size.x * _grid.Size.y);
+
+        private long PerWorker(int nodes) => _layered != null ? LayeredSearchWorkspace.Budget(nodes) : WorkspaceSize(nodes);
 
         private NavigationSubmit Availability()
         {
             if (!HasGrid)
                 return NavigationSubmit.NoGrid;
-            return WorkspaceSize(GridNodes) <= _workspaceBudget ? NavigationSubmit.Accepted :
+            return PerWorker(GridNodes) <= _workspaceBudget ? NavigationSubmit.Accepted :
                 NavigationSubmit.NoWorkspaceBudget;
         }
 
@@ -349,15 +416,17 @@ namespace ProjectLegion.Gameplay
             if (_busy > 0 || Queued == 0 || !HasGrid)
                 return;
             int nodes = GridNodes;
-            long perWorker = WorkspaceSize(nodes);
+            long perWorker = PerWorker(nodes);
             int desired = (int)Math.Min(_workers.Length, Math.Max(0, Math.Min(availableBytes, _workspaceBudget)) / perWorker);
-            if (nodes == _workspaceNodes && desired == Concurrency)
+            if (nodes == _workspaceNodes && desired == Concurrency && _layeredWorkers == (_layered != null))
                 return;
             DisposeWorkspaces();
             _workspaceNodes = nodes;
+            _layeredWorkers = _layered != null;
             while (Concurrency < desired)
             {
-                _workers[Concurrency].Search = new NavigationPathfinder(nodes);
+                if (_layeredWorkers) _workers[Concurrency].Layered = new LayeredSearchWorkspace(nodes);
+                else _workers[Concurrency].Search = new NavigationPathfinder(nodes);
                 Concurrency++;
                 PeakPayloadBytes = Math.Max(PeakPayloadBytes, PayloadBytes);
             }
@@ -387,16 +456,17 @@ namespace ProjectLegion.Gameplay
                     continue;
 
                 var request = _requests[worker.Slot];
-                var path = worker.Search.ReadResult();
+                var path = worker.Layered != null ? worker.Layered.Finish() : worker.Search.ReadResult();
                 if (path.Status == NavigationPathStatus.Success)
                 {
-                    int blocks = NavigationPathResultPool.BlocksFor(path.PathCount);
+                    long items = worker.Layered != null ? 2L * path.PathCount - 1 : path.PathCount;
+                    int blocks = items > int.MaxValue ? int.MaxValue : NavigationPathResultPool.BlocksFor((int)items);
                     if (blocks > _results.BlockCount)
                     {
                         request.Status = NavigationCompletionStatus.PathExceedsResultCapacity;
                         path.PathCount = 0;
                     }
-                    else if (!Copy(worker, blocks, path.PathCount, ref copyBudget))
+                    else if (!Copy(worker, blocks, path.PathCount, (int)items, ref copyBudget))
                         continue;
                 }
 
@@ -415,7 +485,7 @@ namespace ProjectLegion.Gameplay
             _nextCollector = (_nextCollector + 1) % _workers.Length;
         }
 
-        private bool Copy(Worker worker, int blocks, int count, ref int budget)
+        private bool Copy(Worker worker, int blocks, int nodes, int count, ref int budget)
         {
             if (budget == 0)
                 return false;
@@ -435,7 +505,9 @@ namespace ProjectLegion.Gameplay
             while (worker.Copied < count && budget > 0)
             {
                 int offset = worker.Copied % NavigationPathResultPool.BlockSize;
-                _results.Write(worker.Block, offset, worker.Search.PathNode(worker.Copied));
+                int value = worker.Layered == null ? worker.Search.PathNode(worker.Copied) :
+                    worker.Copied < nodes ? worker.Layered.Node(worker.Copied) : worker.Layered.Edge(worker.Copied - nodes);
+                _results.Write(worker.Block, offset, value);
                 worker.Copied++;
                 budget--;
                 if (offset == NavigationPathResultPool.BlockSize - 1)
@@ -455,6 +527,7 @@ namespace ProjectLegion.Gameplay
                 SumActiveReleaseTicks += released;
                 ActiveReleaseSamples++;
             }
+            worker.Layered?.DiscardCompleted();
             worker.Cancelled = 0;
             worker.Busy = false;
             worker.Slot = -1;
@@ -561,7 +634,9 @@ namespace ProjectLegion.Gameplay
         {
             for (int i = 0; i < Concurrency; i++)
             {
-                _workers[i].Search.Dispose();
+                _workers[i].Search?.Dispose();
+                _workers[i].Layered?.Dispose();
+                _workers[i].Layered = null;
                 _workers[i].Search = null;
             }
             Concurrency = 0;

@@ -53,6 +53,9 @@ namespace ProjectLegion.Gameplay
         internal bool Busy => _stage != Stage.Idle;
         internal bool IsStageComplete => Busy && _job.IsCompleted;
         internal long PayloadBytes => _bytes;
+        internal NavigationHierarchyBuildStatus BeginLayered(LayeredNavigationSnapshot snapshot) =>
+            snapshot != null && snapshot.IsCreated ? NavigationHierarchyBuildStatus.UnsupportedTopology :
+                NavigationHierarchyBuildStatus.InvalidGrid;
 
         internal NavigationHierarchyBuildStatus Begin(NavigationGrid grid, int2 clusterSize, NavigationPortalMode mode,
             int workers, long budget, bool asynchronous, NativeArray<double> edgeCosts = default)
