@@ -8,7 +8,7 @@ using Unity.Profiling;
 
 namespace ProjectLegion.Gameplay
 {
-    internal enum NavigationPathStatus { Unsearched, Success, InvalidStart, InvalidDestination, Unreachable }
+    internal enum NavigationPathStatus { Unsearched, Success, InvalidStart, InvalidDestination, Unreachable, Invalidated }
 
     internal struct NavigationPathResult
     {
@@ -25,6 +25,7 @@ namespace ProjectLegion.Gameplay
         private NativeArray<NavigationHeapEntry> _heap;
         private NativeArray<NavigationPathResult> _result;
         private uint _generation;
+        private NavigationGrid _source;
 
         internal int Capacity => _stamps.IsCreated ? _stamps.Length : 0;
         internal int ExplorationCapacity => _explored.IsCreated ? _explored.Length : 0;
@@ -60,18 +61,29 @@ namespace ProjectLegion.Gameplay
 
         internal NavigationPathResult Search(NavigationGrid grid, int2 start, int2 destination, bool record = false)
         {
+            if (grid.IsCreated && !grid.AcceptsQueries)
+            {
+                _source = grid;
+                return ReadResult();
+            }
             CreateJob(grid, start, destination, record).Run();
             return ReadResult();
         }
 
         internal JobHandle Schedule(NavigationGrid grid, int2 start, int2 destination)
         {
+            if (grid.IsCreated && !grid.AcceptsQueries)
+            {
+                _source = grid;
+                return default;
+            }
             JobHandle handle = CreateJob(grid, start, destination, false).Schedule();
             grid.RegisterReader(handle);
             return handle;
         }
 
-        internal NavigationPathResult ReadResult() => _result[0];
+        internal NavigationPathResult ReadResult() => _source != null && !_source.AcceptsQueries
+            ? new NavigationPathResult { Status = NavigationPathStatus.Invalidated } : _result[0];
 
         private SearchJob CreateJob(NavigationGrid grid, int2 start, int2 destination, bool record)
         {
@@ -81,6 +93,7 @@ namespace ProjectLegion.Gameplay
                 throw new ObjectDisposedException(nameof(NavigationGrid));
             if ((long)grid.Size.x * grid.Size.y > Capacity)
                 throw new ArgumentException("Search workspace is smaller than the graph.", nameof(grid));
+            _source = grid;
             uint generation = unchecked(++_generation);
             if (generation == 0)
                 _generation = 1;
@@ -102,8 +115,8 @@ namespace ProjectLegion.Gameplay
             };
         }
 
-        internal int PathNode(int index) => ResultNode(_path, index, _result[0].PathCount);
-        internal int ExploredNode(int index) => ResultNode(_explored, index, _result[0].Recorded);
+        internal int PathNode(int index) => ResultNode(_path, index, ReadResult().PathCount);
+        internal int ExploredNode(int index) => ResultNode(_explored, index, ReadResult().Recorded);
 
         private static int ResultNode(NativeArray<int> nodes, int index, int count)
         {

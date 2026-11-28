@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
@@ -104,7 +104,7 @@ namespace ProjectLegion.Gameplay
         internal bool TryGetView(NavigationGrid current, out NavigationFlowView view)
         {
             view = default;
-            if (!_published || !ReferenceEquals(current, _grid) || !_grid.IsCreated ||
+            if (!_published || !ReferenceEquals(current, _grid) || !_grid.AcceptsQueries ||
                 current.Generation != GridGeneration)
                 return false;
             view = new NavigationFlowView(_integration.AsReadOnly(), _directions.AsReadOnly(), current.Size, GridGeneration);

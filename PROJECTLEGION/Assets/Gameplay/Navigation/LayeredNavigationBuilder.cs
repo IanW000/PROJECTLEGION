@@ -23,18 +23,26 @@ namespace ProjectLegion.Gameplay
     {
         internal long Rays, Capsules, RejectedCandidates, ContinuityRejections;
         internal long TemporaryPayload;
-        internal double ExtractionMs, ConnectionsMs, PackMs;
+        internal double ExtractionMs, ConnectionsMs, RemapMs, PackMs;
+        internal long ResampledColumns;
     }
 
     internal sealed class LayeredNavigationBuilder
     {
-        private struct Sample
+        internal struct Sample
         {
             internal Collider Collider;
             internal int Key;
             internal float Height, Cost;
             internal float3 Normal;
             internal bool Walkable;
+        }
+
+        internal sealed class SampleCache
+        {
+            internal Sample[] Samples;
+            internal long Generation;
+            internal long PayloadBytes => 48L * Samples.Length;
         }
 
         private readonly PhysicsScene _physics;
@@ -55,6 +63,9 @@ namespace ProjectLegion.Gameplay
         private readonly long _budget;
 
         private LayerSamplingStats _stats;
+        private LayeredNavigationSnapshot _previous;
+        private NavigationDirtyColumns _dirty;
+        private int[] _oldToNew;
 
         internal LayeredNavigationBuilder(PhysicsScene physics, float3 origin, LayerNavigationSettings settings, long budget)
         {
@@ -81,11 +92,49 @@ namespace ProjectLegion.Gameplay
         }
 
         internal LayeredNavigationSnapshot Build(LayerNavigationLink[] links, out LayerSamplingStats stats)
+            => BuildCore(links, null, null, null, false, out stats, out _);
+
+        internal LayeredNavigationSnapshot BuildUpdate(LayerNavigationLink[] links, LayeredNavigationSnapshot previous,
+            SampleCache priorSamples, NavigationDirtyColumns dirty, out LayerSamplingStats stats, out SampleCache cache)
+            => BuildCore(links, previous, priorSamples, dirty, true, out stats, out cache);
+
+        private LayeredNavigationSnapshot BuildCore(LayerNavigationLink[] links, LayeredNavigationSnapshot previous,
+            SampleCache priorSamples, NavigationDirtyColumns dirty, bool keepSamples, out LayerSamplingStats stats,
+            out SampleCache cache)
         {
+            cache = null;
+            _previous = previous;
+            _dirty = dirty;
+            if (_previous != null)
+            {
+                if (priorSamples == null || priorSamples.Generation != previous.Generation ||
+                    !previous.Size.Equals(_size) || !previous.Origin.Equals(_origin.xz) ||
+                    previous.CellSize != _settings.Grid.CellSize || dirty == null)
+                    throw new ArgumentException("Partial input is incompatible with the current sampling domain.");
+                _oldToNew = new int[previous.NodeCount];
+                Array.Fill(_oldToNew, -1);
+                // Validate reused author keys before sampling any replacement column.
+                foreach (var sample in priorSamples.Samples)
+                    if (sample.Collider != null)
+                        _keys[sample.Key] = sample.Collider;
+            }
             long begin = Stopwatch.GetTimestamp();
             for (int column = 0; column < _columns.Length - 1; column++)
             {
                 _columns[column] = _nodes.Count;
+                if (previous != null && !dirty.Sample[column])
+                {
+                    var view = previous.View();
+                    for (int old = previous.ColumnStart(column); old < previous.ColumnStart(column + 1); old++)
+                    {
+                        GuardMemory(_nodes.Count + 1, _edges.Count);
+                        _oldToNew[old] = _nodes.Count;
+                        _nodes.Add(view.Nodes[old]);
+                        _supports.Add(priorSamples.Samples[old]);
+                    }
+                    continue;
+                }
+                _stats.ResampledColumns++;
                 float2 position = Center(column);
                 Read(position, _column);
 
@@ -99,7 +148,7 @@ namespace ProjectLegion.Gameplay
                         throw new ArgumentException($"Layer limit exceeded in column {column}.");
                     GuardMemory(_nodes.Count + 1, _edges.Count);
                     _nodes.Add(new LayerNode { Position = new float3(position.x, sample.Height, position.y),
-                        Cost = sample.Cost, Walkable = sample.Walkable });
+                        Cost = sample.Cost, Walkable = sample.Walkable, SurfaceKey = sample.Key });
                     _supports.Add(sample);
                 }
             }
@@ -107,14 +156,39 @@ namespace ProjectLegion.Gameplay
             _stats.ExtractionMs = Elapsed(begin);
 
             begin = Stopwatch.GetTimestamp();
+            if (previous != null)
+            {
+                long remapBegin = Stopwatch.GetTimestamp();
+                // Match replaced column samples by stable surface and exact height solely for remapping.
+                var view = previous.View();
+                for (int col = 0; col < _columns.Length - 1; col++)
+                {
+                    if (!dirty.Sample[col]) continue;
+                    for (int old = previous.ColumnStart(col); old < previous.ColumnStart(col + 1); old++)
+                    for (int node = _columns[col]; node < _columns[col + 1]; node++)
+                    {
+                        var a = view.Nodes[old];
+                        var b = _nodes[node];
+                        if (a.SurfaceKey == b.SurfaceKey && a.Position.Equals(b.Position))
+                            _oldToNew[old] = node;
+                    }
+                }
+                _stats.RemapMs = Elapsed(remapBegin);
+            }
             BuildOrdinary(0, 4);
             if (_settings.Grid.Diagonals) BuildOrdinary(4, 8);
             AddLinks(links);
             GuardMemory(_nodes.Count, _edges.Count);
-            _stats.ConnectionsMs = Elapsed(begin);
+            _stats.ConnectionsMs = Elapsed(begin) - _stats.RemapMs;
             begin = Stopwatch.GetTimestamp();
+            long retainedCache = keepSamples ? 48L * _supports.Count : 0;
             var snapshot = new LayeredNavigationSnapshot(_size, _origin.xz, _settings.Grid.CellSize, _nodes.ToArray(),
-                _columns, _edges, _budget - _stats.TemporaryPayload);
+                _columns, _edges, _budget - _stats.TemporaryPayload - retainedCache);
+            if (keepSamples)
+            {
+                try { cache = new SampleCache { Samples = _supports.ToArray(), Generation = snapshot.Generation }; }
+                catch { snapshot.Dispose(); throw; }
+            }
             _stats.PackMs = Elapsed(begin);
             stats = _stats;
             return snapshot;
@@ -126,7 +200,7 @@ namespace ProjectLegion.Gameplay
         {
             // Conservative staging allowance including List growth, collider key registry and final cursor.
             long scratch = 4L * _columns.Length + 200L * _settings.HitCapacity + 112L * nodes + 64L * edges +
-                192L * _keys.Count;
+                192L * _keys.Count + 4L * (_oldToNew?.Length ?? 0);
             _stats.TemporaryPayload = Math.Max(_stats.TemporaryPayload, scratch);
             if (LayeredNavigationSnapshot.Estimate(_size, nodes, edges) + _stats.TemporaryPayload > _budget)
                 throw new ArgumentException("Layered sampling and snapshot exceed budget.");
@@ -245,6 +319,24 @@ namespace ProjectLegion.Gameplay
             }
             for (int col = 0; col < _columns.Length - 1; col++)
             {
+                if (_previous != null && !_dirty.Repair[col])
+                {
+                    var view = _previous.View();
+                    for (int old = _previous.ColumnStart(col); old < _previous.ColumnStart(col + 1); old++)
+                    for (int e = view.Outgoing[old]; e < view.Outgoing[old + 1]; e++)
+                    {
+                        var edge = view.Edges[e];
+                        if (edge.Type != LayerConnectionType.Surface) continue;
+                        var delta = view.Nodes[edge.To].Position.xz - view.Nodes[old].Position.xz;
+                        bool diagonal = delta.x != 0 && delta.y != 0;
+                        if (diagonal != (first == 4)) continue;
+                        edge.From = _oldToNew[edge.From];
+                        edge.To = _oldToNew[edge.To];
+                        if (edge.From < 0 || edge.To < 0) throw new ArgumentException("Dirty support exceeded its repair halo.");
+                        Add(edge);
+                    }
+                    continue;
+                }
                 int2 cell = new int2(col % _size.x, col / _size.x);
                 for (int from = _columns[col]; from < _columns[col + 1]; from++)
                 {
@@ -327,6 +419,7 @@ namespace ProjectLegion.Gameplay
             int previous = 0;
             foreach (var link in links)
             {
+                if (!link.isActiveAndEnabled) continue;
                 if (link.Key <= 0 || link.Key == previous || link.Source == null || link.Destination == null ||
                     link.Type == LayerConnectionType.Surface || !math.isfinite(link.Cost) || link.Cost <= 0 ||
                     (link.Bidirectional && (!math.isfinite(link.ReturnCost) || link.ReturnCost <= 0)))

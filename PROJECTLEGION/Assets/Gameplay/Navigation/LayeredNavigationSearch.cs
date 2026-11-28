@@ -150,7 +150,7 @@ namespace ProjectLegion.Gameplay
 
         private LayerSearchJob Create(LayeredNavigationSnapshot graph, int start, int goal)
         {
-            if (_pending || !graph.IsCreated || graph.NodeCount != Capacity)
+            if (_pending || !graph.AcceptsQueries || graph.NodeCount != Capacity)
                 throw new InvalidOperationException("Workspace busy, stale snapshot, or incorrect workspace capacity.");
             _source = graph;
             return new LayerSearchJob { Graph = graph.View(), Start = start, Goal = goal, Costs = _costs,
@@ -160,6 +160,11 @@ namespace ProjectLegion.Gameplay
 
         internal NavigationPathResult Search(LayeredNavigationSnapshot snapshot, LayerNodeHandle start, LayerNodeHandle goal)
         {
+            if (!snapshot.AcceptsQueries)
+            {
+                _source = snapshot;
+                return new NavigationPathResult { Status = NavigationPathStatus.Invalidated };
+            }
             Create(snapshot, snapshot.Matches(start) ? start.Id : -1, snapshot.Matches(goal) ? goal.Id : -1).Run();
             return _output[0];
         }
@@ -180,12 +185,12 @@ namespace ProjectLegion.Gameplay
                 _job.Complete();
                 _pending = false;
             }
-            return _source != null && _source.IsCreated ? _output[0]
-                : new NavigationPathResult { Status = NavigationPathStatus.Unreachable };
+            return _source != null && _source.AcceptsQueries ? _output[0]
+                : new NavigationPathResult { Status = NavigationPathStatus.Invalidated };
         }
 
         internal void DiscardCompleted() { if (_pending) { _job.Complete(); _pending = false; } }
-        private bool Readable => !_pending && _output.IsCreated && _source != null && _source.IsCreated;
+        private bool Readable => !_pending && _output.IsCreated && _source != null && _source.AcceptsQueries;
         internal int Node(int index)
         {
             if (!Readable || (uint)index >= (uint)_output[0].PathCount) throw new ArgumentOutOfRangeException(nameof(index));
@@ -307,7 +312,7 @@ namespace ProjectLegion.Gameplay
             published = false;
             if (!_result.IsCreated || !_job.IsCompleted) return false;
             _job.Complete();
-            _ready = _snapshot.IsCreated && _result[0].Status == NavigationPathStatus.Success;
+            _ready = _snapshot.AcceptsQueries && _result[0].Status == NavigationPathStatus.Success;
             published = _ready;
             ReleaseScratch();
             return true;
@@ -324,7 +329,7 @@ namespace ProjectLegion.Gameplay
         internal bool TryGetView(LayeredNavigationSnapshot current, out LayeredFlowView view)
         {
             view = default;
-            if (!_ready || current != _snapshot || !_snapshot.IsCreated)
+            if (!_ready || current != _snapshot || !_snapshot.AcceptsQueries)
                 return false;
             view = new LayeredFlowView(_snapshot.View(), _costs.AsReadOnly(), _next.AsReadOnly(),
                 _snapshot.Generation, _goal);

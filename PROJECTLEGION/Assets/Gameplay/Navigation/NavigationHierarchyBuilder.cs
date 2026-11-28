@@ -54,7 +54,7 @@ namespace ProjectLegion.Gameplay
         internal bool IsStageComplete => Busy && _job.IsCompleted;
         internal long PayloadBytes => _bytes;
         internal NavigationHierarchyBuildStatus BeginLayered(LayeredNavigationSnapshot snapshot) =>
-            snapshot != null && snapshot.IsCreated ? NavigationHierarchyBuildStatus.UnsupportedTopology :
+            snapshot != null && snapshot.AcceptsQueries ? NavigationHierarchyBuildStatus.UnsupportedTopology :
                 NavigationHierarchyBuildStatus.InvalidGrid;
 
         internal NavigationHierarchyBuildStatus Begin(NavigationGrid grid, int2 clusterSize, NavigationPortalMode mode,
@@ -62,7 +62,7 @@ namespace ProjectLegion.Gameplay
         {
             if (_disposed) throw new ObjectDisposedException(nameof(NavigationHierarchyBuilder));
             if (Busy) throw new InvalidOperationException("A hierarchy build is already active.");
-            if (grid == null || !grid.IsCreated) return NavigationHierarchyBuildStatus.InvalidGrid;
+            if (grid == null || !grid.AcceptsQueries) return NavigationHierarchyBuildStatus.InvalidGrid;
             if (math.any(clusterSize <= 0) || workers < 1 || workers > 16)
                 return NavigationHierarchyBuildStatus.InvalidSettings;
             if (budget <= 0) return NavigationHierarchyBuildStatus.BudgetExceeded;
@@ -125,7 +125,7 @@ namespace ProjectLegion.Gameplay
             while (IsStageComplete)
             {
                 _job.Complete();
-                if (!ReferenceEquals(current, _grid) || !_grid.IsCreated)
+                if (!ReferenceEquals(current, _grid) || !_grid.AcceptsQueries)
                 {
                     status = NavigationHierarchyBuildStatus.Invalidated;
                     Clear();

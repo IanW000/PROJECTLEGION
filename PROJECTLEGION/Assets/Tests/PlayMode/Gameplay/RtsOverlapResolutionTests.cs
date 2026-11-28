@@ -388,13 +388,20 @@ namespace ProjectLegion.Gameplay.Tests
 
             internal void Step(float deltaTime = Frame)
             {
+                BeginStep(deltaTime);
+                FinishStep();
+            }
+
+            internal void BeginStep(float deltaTime = Frame)
+            {
                 _world.SetTime(new TimeData(_time += deltaTime, deltaTime));
                 if (_group != null)
                     _group.Update();
                 else
                     _correction.Update();
-                Manager.CompleteDependencyBeforeRO<LocalTransform>();
             }
+
+            internal void FinishStep() => Manager.CompleteDependencyBeforeRO<LocalTransform>();
 
             public void Dispose() => _world.Dispose();
         }

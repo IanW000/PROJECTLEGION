@@ -36,6 +36,9 @@ namespace ProjectLegion.Gameplay
         private bool _hasReaders;
         private static long _nextGeneration;
         internal bool IsCreated => _heights.IsCreated;
+        internal bool AcceptsQueries => IsCreated && !_gated;
+        private bool _gated;
+        internal void GateQueries() => _gated = true;
         internal long Generation { get; } = Interlocked.Increment(ref _nextGeneration);
         internal int2 Size { get; }
         internal float2 Origin { get; }

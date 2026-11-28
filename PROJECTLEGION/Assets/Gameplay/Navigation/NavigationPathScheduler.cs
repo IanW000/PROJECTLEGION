@@ -160,7 +160,7 @@ namespace ProjectLegion.Gameplay
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(NavigationPathScheduler));
-            if (grid != null && !grid.IsCreated)
+            if (grid != null && !grid.AcceptsQueries)
                 grid = null;
             if (_layered == null && ReferenceEquals(_grid, grid))
                 return;
@@ -175,7 +175,7 @@ namespace ProjectLegion.Gameplay
         internal void SetLayeredSnapshot(LayeredNavigationSnapshot snapshot)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(NavigationPathScheduler));
-            if (snapshot != null && !snapshot.IsCreated) snapshot = null;
+            if (snapshot != null && !snapshot.AcceptsQueries) snapshot = null;
             if (_grid == null && ReferenceEquals(_layered, snapshot)) return;
             long generation = checked(_generation + 1);
             CancelAll();
@@ -359,7 +359,7 @@ namespace ProjectLegion.Gameplay
         {
             if (_disposed)
                 throw new ObjectDisposedException(nameof(NavigationPathScheduler));
-            if ((_grid != null && !_grid.IsCreated) || (_layered != null && !_layered.IsCreated))
+            if ((_grid != null && !_grid.AcceptsQueries) || (_layered != null && !_layered.AcceptsQueries))
                 SetGrid(null);
 
             long begin = Stopwatch.GetTimestamp();
@@ -398,7 +398,7 @@ namespace ProjectLegion.Gameplay
             SchedulingTicks = Stopwatch.GetTimestamp() - begin;
         }
 
-        private bool HasGrid => !_disposed && (_grid?.IsCreated == true || _layered?.IsCreated == true);
+        private bool HasGrid => !_disposed && (_grid?.AcceptsQueries == true || _layered?.AcceptsQueries == true);
         private int GridNodes => _layered?.NodeCount ?? (_grid.Size.x * _grid.Size.y);
 
         private long PerWorker(int nodes) => _layered != null ? LayeredSearchWorkspace.Budget(nodes) : WorkspaceSize(nodes);

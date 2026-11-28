@@ -154,7 +154,7 @@ namespace ProjectLegion.Gameplay
 
         // Owner-thread contract: acquire, schedule and register before changing snapshots.
         internal bool IsCurrent(NavigationGrid grid) => _published && ReferenceEquals(grid, _source) &&
-            _source.IsCreated && grid.Generation == GridGeneration;
+            _source.AcceptsQueries && grid.Generation == GridGeneration;
 
         internal bool TryGetView(NavigationGrid grid, out NavigationHierarchyView view)
         {

@@ -28,6 +28,7 @@ namespace ProjectLegion.Gameplay
     {
         internal float3 Position;
         internal float Cost;
+        internal int SurfaceKey;
         internal bool Walkable;
     }
 
@@ -71,6 +72,9 @@ namespace ProjectLegion.Gameplay
         internal float2 Origin { get; }
         internal float CellSize { get; }
         internal bool IsCreated => _nodes.IsCreated;
+        internal bool AcceptsQueries => IsCreated && !_gated;
+        private bool _gated;
+        internal void GateQueries() => _gated = true;
         internal int NodeCount => IsCreated ? _nodes.Length : 0;
         internal int EdgeCount => IsCreated ? _edges.Length : 0;
         internal bool GeometricHeuristic { get; }
@@ -141,7 +145,7 @@ namespace ProjectLegion.Gameplay
         internal bool Resolve(float3 position, float tolerance, out LayerNodeHandle handle)
         {
             handle = default;
-            if (!IsCreated || !math.all(math.isfinite(position)) || !math.isfinite(tolerance) || tolerance < 0) return false;
+            if (!AcceptsQueries || !math.all(math.isfinite(position)) || !math.isfinite(tolerance) || tolerance < 0) return false;
             double2 cell = math.floor(((double2)position.xz - Origin) / CellSize);
             if (math.any(cell < 0 | cell >= Size)) return false;
             int column = (int)cell.y * Size.x + (int)cell.x;
@@ -162,7 +166,7 @@ namespace ProjectLegion.Gameplay
             return true;
         }
 
-        internal bool Matches(LayerNodeHandle node) => IsCreated && node.Generation == Generation &&
+        internal bool Matches(LayerNodeHandle node) => AcceptsQueries && node.Generation == Generation &&
             (uint)node.Id < (uint)_nodes.Length;
 
         internal int LayerIndex(int node)
@@ -173,13 +177,31 @@ namespace ProjectLegion.Gameplay
         internal bool TryGetEdge(LayerEdgeHandle edge, out LayerEdge value)
         {
             value = default;
-            if (!IsCreated || edge.Generation != Generation || (uint)edge.Id >= (uint)_edges.Length) return false;
+            if (!AcceptsQueries || edge.Generation != Generation || (uint)edge.Id >= (uint)_edges.Length) return false;
             value = _edges[edge.Id];
             return true;
         }
 
         internal LayerGraphView View() => new LayerGraphView(_nodes.AsReadOnly(), _edges.AsReadOnly(),
             _outgoing.AsReadOnly(), _incoming.AsReadOnly(), _incomingEdges.AsReadOnly(), GeometricHeuristic);
+
+        internal int ColumnStart(int column) => _columns[column];
+
+        internal int ResolveSurface(float3 position, int stableKey)
+        {
+            if (!IsCreated || stableKey <= 0 || !math.all(math.isfinite(position))) return -1;
+            var cell = (int2)math.floor((position.xz - Origin) / CellSize);
+            if (math.any(cell < 0 | cell >= Size)) return -1;
+            int column = cell.y * Size.x + cell.x, found = -1;
+            for (int node = _columns[column]; node < _columns[column + 1]; node++)
+            {
+                var sample = _nodes[node];
+                if (!sample.Walkable || sample.SurfaceKey != stableKey || !sample.Position.Equals(position)) continue;
+                if (found >= 0) return -1;
+                found = node;
+            }
+            return found;
+        }
 
         internal void RegisterReader(JobHandle job)
         {

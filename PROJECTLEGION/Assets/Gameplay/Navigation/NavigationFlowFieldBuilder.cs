@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -52,7 +52,7 @@ namespace ProjectLegion.Gameplay
             if (Busy) throw new InvalidOperationException("A build already owns this workspace.");
             if (!asynchronous && !dependency.Equals(default(JobHandle)))
                 throw new ArgumentException("Dependencies require an asynchronous build.", nameof(dependency));
-            if (grid == null || !grid.IsCreated || !grid.TryGetNode(goal, out var node) || !node.Walkable)
+            if (grid == null || !grid.AcceptsQueries || !grid.TryGetNode(goal, out var node) || !node.Walkable)
                 return NavigationFlowBuildStatus.InvalidGoal;
             int count = checked(grid.Size.x * grid.Size.y);
             if (_heap.Length < count) throw new ArgumentException("Insufficient workspace.", nameof(grid));
@@ -113,7 +113,7 @@ namespace ProjectLegion.Gameplay
             if (!Busy || !_build.IsCompleted)
                 return false;
             _build.Complete();
-            if (!ReferenceEquals(current, _source) || !_source.IsCreated || current.Generation != _pending.GridGeneration)
+            if (!ReferenceEquals(current, _source) || !_source.AcceptsQueries || current.Generation != _pending.GridGeneration)
                 status = NavigationFlowBuildStatus.Invalidated;
             else if (_stats[0].NumericFailure)
                 status = NavigationFlowBuildStatus.NumericFailure;
